@@ -1,0 +1,49 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: spring-ai-assistant
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/enterprise_ai}
+    username: ${DB_USERNAME:enterprise}
+    password: ${DB_PASSWORD:enterprise}
+  sql:
+    init:
+      mode: always
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+  ai:
+    model:
+      chat: ollama
+      embedding: ollama
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          #model: ${OLLAMA_CHAT_MODEL:llama3.2:latest}
+          #model: ${OLLAMA_CHAT_MODEL:qwen3:4b}
+          model: ${OLLAMA_CHAT_MODEL:LiquidAI/lfm2.5-2.6b:latest}
+          temperature: 0.1
+      embedding:
+        model: ${OLLAMA_EMBEDDING_MODEL:nomic-embed-text}
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        dimensions: 768
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        schema-name: public
+        table-name: vector_store
+
+logging:
+  level:
+    it.davideangelone.assistant: INFO
+    org.springframework.ai: INFO
+
+app:
+  rag:
+    # Numero massimo di chunk semanticamente pertinenti recuperati dall'intero indice (TXT + PDF).
+    top-k: 6
