@@ -33,7 +33,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 - **Ingestion documentale** via multipart con Apache Tika: estrazione del testo, chunking con overlap e metadati `source`, `chunk`, `documentType`, `contentType`.
 - **Indicizzazione unificata**: PDF e TXT (e gli altri formati supportati da Tika) finiscono nello stesso VectorStore `pgvector`; la ricerca è globale e non applica filtri sul formato del documento.
 - **Tool calling read-only** verso PostgreSQL: ricerca ordini per stato, dettaglio ordine per ID, somma importi per stato, data e ora corrente.
-- **Risposta strutturata** con separazione netta tra `reasoning` (processo logico interno) e `answer` (risposta completa per l'utente), con tabelle Markdown preservate.
+- **Risposta strutturata** con separazione netta tra `thinking` (processo logico interno) e `answer` (risposta completa per l'utente), con tabelle Markdown preservate.
 - **Riferimenti alle fonti**: ogni risposta include i documenti da cui provengono i chunk recuperati (`sources`).
 - **Cronologia conversazionale** esposta via API, con tracciamento per singola conversazione degli scambi, del modello utilizzato e delle fonti citate.
 - **Dataset dimostrativo** con 6 ordini fittizi in 4 stati e vincoli di integrità applicati lato database.
@@ -61,9 +61,8 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 2. `AssistantService` invoca il `ChatClient` con un prompt di sistema che definisce ruolo, lingua, divieto di inventare dati e regole strutturali di output.
 3. Il modello decide se utilizzare i tool. Ogni invocazione di `DocumentTools.searchDocuments` esegue una `similaritySearch` sul VectorStore e accumula i chunk in `RetrievedDocumentsContext` tramite `ToolContext`.
 4. `MessageTrackerAdvisor` intercetta la richiesta e la risposta, assegnando un numero progressivo al messaggio e registrando timestamp, modello e fonti.
-5. La risposta grezza viene convertita in `AssistantStructuredResponse` (`reasoning` + `answer`) da `BeanOutputConverter`; in caso di parsing non riuscito si ricade sul contenuto grezzo.
-6. `ReasoningSanitizer` estrae i blocchi `<think>` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
-7. La risposta HTTP contiene `answer`, `reasoning`, `sources`, `model` e `conversationId`.
+5. `ReasoningSanitizer` estrae i blocchi `<think>` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
+6. La risposta HTTP contiene `answer`, `thinking`, `sources`, `model` e `conversationId`.
 
 ### Scelte architetturali
 
@@ -193,7 +192,7 @@ Tutte le API sono esposte sotto il prefisso `/api`.
 ```json
 {
   "answer": "Gli ordini in ritardo vengono verificati dal reparto Operations...",
-  "reasoning": "Ho consultato la procedura aziendale e verificato gli ordini in stato IN_PROGRESS...",
+  "thinking": "Ho consultato la procedura aziendale e verificato gli ordini in stato IN_PROGRESS...",
   "sources": [
     {
       "id": "6c0e2a1b-8f3d-4a2e-9c7b-1d5f4e3a2b10",
@@ -209,7 +208,7 @@ Tutte le API sono esposte sotto il prefisso `/api`.
 | Campo | Tipo | Descrizione |
 |---|---|---|
 | `answer` | `string` | Risposta completa per l'utente, con tabelle Markdown quando i dati provengono dal database |
-| `reasoning` | `string` | Processo logico interno e pianificazione, separato dalla risposta |
+| `thinking` | `string` | Processo logico interno e pianificazione, separato dalla risposta |
 | `sources` | `array` | Riferimenti univoci (`id`, `source`, `chunk`) ai chunk recuperati dal VectorStore |
 | `model` | `string` | Modello effettivamente utilizzato per generare la risposta |
 | `conversationId` | `string` | Identificativo della conversazione, associato alla sessione HTTP |
@@ -318,7 +317,7 @@ curl -c cookies.txt -b cookies.txt http://localhost:8080/api/history
   {
     "name": "ASSISTANT",
     "answer": "Gli ordini in ritardo vengono verificati dal reparto Operations...",
-    "reasoning": "Ho recuperato la procedura aziendale...",
+    "thinking": "Ho recuperato la procedura aziendale...",
     "metadata": {
       "sources": [
         { "id": "6c0e2a1b-...", "source": "procedura-gestione-ordini.txt", "chunk": 1 }
@@ -335,7 +334,7 @@ curl -c cookies.txt -b cookies.txt http://localhost:8080/api/history
 | `name` | `string` | Ruolo del messaggio (`USER` / `ASSISTANT`) |
 | `text` | `string` | Contenuto grezto del messaggio (presente per i messaggi utente) |
 | `answer` | `string` | Risposta strutturata (presente per i messaggi dell'assistente) |
-| `reasoning` | `string` | Ragionamento interno (presente per i messaggi dell'assistente) |
+| `thinking` | `string` | Processo logico interno e pianificazione, separato dalla risposta |
 | `metadata` | `object` | Timestamp, modello e fonti citate |
 
 ### 5. Verifica diretta dei dati su PostgreSQL
@@ -392,13 +391,13 @@ La ricerca viene eseguita **solo** quando il modello invoca `searchDocuments`:
 
 ### Generazione
 
-Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dati transazionali, divieto di inventare informazioni, distinzione tra dati di database e contenuti documentali, compilazione obbligatoria di `reasoning` e `answer`, output dei record in tabelle Markdown e assenza di riferimenti a nomi di tool o dettagli implementativi.
+Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dati transazionali, divieto di inventare informazioni, distinzione tra dati di database e contenuti documentali, output dei record in tabelle Markdown e assenza di riferimenti a nomi di tool o dettagli implementativi.
 
 La risposta viene poi normalizzata da `ReasoningSanitizer`, che:
 
-- estrae i blocchi `<think>` / `<thought>` (anche non chiusi) verso il campo `reasoning`;
+- estrae i blocchi `<think>` / `<thought>` (anche non chiusi) verso il campo `thinking`;
 - preserva integralmente tabelle Markdown e a capo nel campo `answer`;
-- recupera nel `answer` eventuali tabelle erroneamente prodotte nel `reasoning`;
+- recupera nel `answer` eventuali tabelle erroneamente prodotte nel `thinking`;
 - applica il fallback `Il modello non ha restituito una risposta.` quando la risposta è assente.
 
 ---

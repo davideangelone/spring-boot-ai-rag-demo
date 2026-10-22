@@ -9,7 +9,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import it.davideangelone.assistant.constants.Constants;
-import it.davideangelone.assistant.model.AssistantStructuredResponse;
 import it.davideangelone.assistant.model.MemoryLogMessageMetadata;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import it.davideangelone.assistant.model.SourceReference;
@@ -68,13 +67,21 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
     public @NonNull ChatClientResponse after(@NonNull ChatClientResponse response, @NonNull AdvisorChain chain) {
         String conversationId = getConversationId(response.context());
 
-        String aiContent = Optional.ofNullable(response.chatResponse())
+        String answer = Optional.ofNullable(response.chatResponse())
                 .map(ChatResponse::getResult)
                 .map(Generation::getOutput)
                 .map(AbstractMessage::getText)
                 .orElse("");
 
-        if (!aiContent.isBlank()) {
+        String thinking = Optional.ofNullable(response.chatResponse())
+                .map(ChatResponse::getResult)
+                .map(Generation::getOutput)
+                .map(AbstractMessage::getMetadata)
+                .map(metadata -> metadata.get("thinking"))
+                .map(Object::toString)
+                .orElse("");
+
+        if (!answer.isBlank()) {
             RetrievedDocumentsContext retrievedContext = (RetrievedDocumentsContext) response.context().get(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT);
             List<SourceReference> sources = Optional.ofNullable(retrievedContext)
                     .map(RetrievedDocumentsContext::getDocuments)
@@ -82,8 +89,7 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
                     .orElse(List.of());
             String modelName = getModelName(response.context());
 
-            AssistantStructuredResponse structuredResponse = documentManager.getStructuredResponse(aiContent);
-            logAnswer(conversationId, MessageType.ASSISTANT, aiContent, structuredResponse, sources, modelName);
+            logAnswer(conversationId, MessageType.ASSISTANT, answer, thinking, sources, modelName);
         }
 
         return response;
@@ -99,21 +105,14 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
         log.info("[CHAT-REQUEST] [{}] Msg {} | {} | {}", now, msgNumber, role, content);
     }
 
-    private void logAnswer(String conversationId, MessageType role, String content, AssistantStructuredResponse structuredResponse, List<SourceReference> sources, String modelName) {
+    private void logAnswer(String conversationId, MessageType role, String answer, String thinking, List<SourceReference> sources, String modelName) {
         int msgNumber = getCurrentMessageNumber(conversationId);
         Instant now = Instant.now();
 
-        String answer = null;
-        String reasoning = null;
-        if (null != structuredResponse) {
-            content = null;
-            answer = structuredResponse.answer();
-            reasoning = structuredResponse.reasoning();
-        }
-        MemoryLogMessageMetadata meta = new MemoryLogMessageMetadata(msgNumber, now, role.toString(), content, answer, reasoning, sources, modelName);
+        MemoryLogMessageMetadata meta = new MemoryLogMessageMetadata(msgNumber, now, role.toString(), null, answer, thinking, sources, modelName);
         memoryLog.computeIfAbsent(conversationId, k -> new ArrayList<>()).add(meta);
 
-        log.info("[CHAT-ANSWER] [{}] Msg {} | {} | {}", now, msgNumber, role, content);
+        log.info("[CHAT-ANSWER] [{}] Msg {} | {} | {}", now, msgNumber, role, answer);
     }
 
     private int getCurrentMessageNumber(String conversationId) {

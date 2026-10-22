@@ -32,7 +32,7 @@ public class ChatHistoryService {
         return new ChatMessageDto(meta.role(),
                                   meta.content(),
                                   meta.answer(),
-                                  meta.reasoning(),
+                                  meta.thinking(),
                                   map
                                   );
     }

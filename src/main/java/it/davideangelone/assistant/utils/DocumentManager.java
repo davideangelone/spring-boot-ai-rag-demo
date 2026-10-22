@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
-import it.davideangelone.assistant.model.AssistantStructuredResponse;
 import it.davideangelone.assistant.model.SourceReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
@@ -13,7 +12,6 @@ import org.apache.tika.exception.TikaException;
 import org.apache.tika.mime.MimeType;
 import org.apache.tika.mime.MimeTypeException;
 import org.apache.tika.mime.MimeTypes;
-import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -78,15 +76,5 @@ public class DocumentManager {
                 String.valueOf(document.getMetadata().getOrDefault("source", "documento")),
                 String.valueOf(document.getMetadata().getOrDefault("chunk", "n/d"))
         );
-    }
-
-    public AssistantStructuredResponse getStructuredResponse(String aiResponse) {
-        try {
-            BeanOutputConverter<AssistantStructuredResponse> converter = new BeanOutputConverter<>(AssistantStructuredResponse.class);
-            return converter.convert(aiResponse);
-        } catch (Exception e) {
-            log.warn("Errore nel parsing della risposta: {}", e.getMessage());
-            return null;
-        }
     }
 }

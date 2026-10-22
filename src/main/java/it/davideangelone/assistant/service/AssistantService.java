@@ -3,10 +3,10 @@ package it.davideangelone.assistant.service;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import it.davideangelone.assistant.api.AskResponse;
 import it.davideangelone.assistant.constants.Constants;
-import it.davideangelone.assistant.model.AssistantStructuredResponse;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import it.davideangelone.assistant.model.SourceReference;
 import it.davideangelone.assistant.tools.DocumentTools;
@@ -14,9 +14,15 @@ import it.davideangelone.assistant.tools.OrderTools;
 import it.davideangelone.assistant.tools.OtherTools;
 import it.davideangelone.assistant.utils.DocumentManager;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -37,11 +43,8 @@ public class AssistantService {
             - strumenti sugli ordini: per dati transazionali aggiornati.
             
             REGOLE STRUTTURALI DI OUTPUT:
-            - Devi compilare obbligatoriamente sia "reasoning" che "answer".
-            - Nel campo "reasoning": inserisci il tuo processo logico interno e la pianificazione. NON inserire qui la risposta finale né le tabelle dati per l'utente.
-            - Nel campo "answer": inserisci la risposta finale COMPLETA destinata all'utente.
             - TABELLE E RECORD DI DATABASE: se nella risposta sono inclusi i dati del database (es. ordini, clienti, importi), DEVI SEMPRE riportare TUTTI i record nel campo "answer" formattati in tabelle Markdown con intestazioni e righe separate da a capo. Non omettere e non troncare i dati trovati.
-            - DIVIETO ASSOLUTO: non includere nel campo "answer" espressioni come "Prima analizzo...", "Sto controllando...", o spiegazioni del tuo ragionamento.
+            - DIVIETO ASSOLUTO: nella risposta non includere espressioni come "Prima analizzo...", "Sto controllando...", o spiegazioni del tuo ragionamento.
             - Non menzionare nomi di tool o strumenti, metodi Java, API interne o dettagli di implementazione.
             - Distingui i dati provenienti dal database dalle informazioni provenienti dai documenti aziendali.
             """;
@@ -74,37 +77,56 @@ public class AssistantService {
 
         RetrievedDocumentsContext retrievedContext = new RetrievedDocumentsContext();
 
-        String response = chatClient.prompt()
+        var tools = new Object[]{orderTools, documentTools, otherTools};
+
+        ChatResponse response = chatClient.prompt(getPrompt(question))
                 .system(SYSTEM_PROMPT)
                 .user(question)
                 .advisors(advisor -> advisor
                         .param(Constants.CONVERSATION_ID, conversationId)
                         .param(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext)
                         .param(Constants.CHAT_OPTIONS, chatModel.getOptions()))
-                .tools(orderTools, documentTools, otherTools)
+                .tools(tools)
                 .toolContext(Map.of(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext))
                 .call()
-                .content();
+                .chatResponse();
 
-        AssistantStructuredResponse structuredResponse = documentManager.getStructuredResponse(response);
-        log.info("Structured response: {}", structuredResponse);
+        String rawResponse = Optional.ofNullable(response)
+                .map(ChatResponse::getResult)
+                .map(Generation::getOutput)
+                .map(AbstractMessage::getText)
+                .orElse(null);
+        String rawThinking = Optional.ofNullable(response)
+                .map(ChatResponse::getResult)
+                .map(Generation::getOutput)
+                .map(AbstractMessage::getMetadata)
+                .map(metadata -> metadata.get("thinking"))
+                .map(Object::toString)
+                .orElse(null);
 
-        String rawAnswer = structuredResponse != null ? structuredResponse.answer() : response;
-        String rawReasoning = structuredResponse != null ? structuredResponse.reasoning() : null;
-
+        log.info("Raw response: {}", StringUtils.abbreviate(rawResponse, 100));
+        log.info("Raw thinking: {}", StringUtils.abbreviate(rawThinking, 100));
         List<Document> retrievedDocuments = retrievedContext.getDocuments();
         List<SourceReference> sources = documentManager.getDocumentsSourceReferences(retrievedDocuments);
 
-        ReasoningSanitizer.SanitizedOutput sanitized = ReasoningSanitizer.sanitize(rawReasoning, rawAnswer);
-        String answer = sanitized.answer();
-        String reasoning = sanitized.reasoning();
+        ReasoningSanitizer.SanitizedOutput sanitized = ReasoningSanitizer.sanitize(rawThinking, rawResponse);
 
         return new AskResponse(
-                answer,
-                reasoning,
+                sanitized.answer(),
+                sanitized.reasoning(),
                 sources,
                 chatModel.getOptions().getModel(),
                 conversationId);
+    }
+
+    private Prompt getPrompt(String question) {
+        return new Prompt(
+                question,
+                OllamaChatOptions.builder()
+                        .model(chatModel.getOptions().getModel())
+                        .enableThinking()
+                        .build()
+        );
     }
 
     public int ingestDocument(MultipartFile multipartFile) throws IOException {

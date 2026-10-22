@@ -44,8 +44,7 @@ public class AssistantController {
 
         if (conversationId == null) {
             conversationId = UUID.randomUUID().toString();
-            session.setAttribute(CONVERSATION_ID, conversationId
-            );
+            session.setAttribute(CONVERSATION_ID, conversationId);
         }
         return assistantService.ask(request.question().trim(), conversationId);
     }

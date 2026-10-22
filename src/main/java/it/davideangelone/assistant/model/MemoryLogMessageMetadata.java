@@ -13,7 +13,7 @@ public record MemoryLogMessageMetadata(int messageNumber,
                                        @JsonInclude(JsonInclude.Include.NON_NULL)
                                        String answer,
                                        @JsonInclude(JsonInclude.Include.NON_NULL)
-                                       String reasoning,
+                                       String thinking,
                                        @JsonInclude(JsonInclude.Include.NON_NULL)
                                        List<SourceReference> sources,
                                        @JsonInclude(JsonInclude.Include.NON_NULL)

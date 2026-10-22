@@ -10,7 +10,7 @@ public record ChatMessageDto(String name,
                              @JsonInclude(JsonInclude.Include.NON_NULL)
                              String answer,
                              @JsonInclude(JsonInclude.Include.NON_NULL)
-                             String reasoning,
+                             String thinking,
                              @JsonInclude(
                                      value = JsonInclude.Include.NON_NULL,
                                      content = JsonInclude.Include.NON_NULL
