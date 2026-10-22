@@ -1,4 +1,4 @@
-# Spring AI Enterprise Assistant
+# Spring AI Assistant POC
 
 POC in Java 21 / Spring Boot 4 / Spring AI 2 che realizza un assistente aziendale conversazionale: un modulo **RAG** agentico per interrogare la documentazione interna e un layer di **tool calling** read-only per recuperare dati transazionali da PostgreSQL.
 
