@@ -69,7 +69,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 - **Separazione reasoning/answer**: il modello è istruito a compilare due campi distinti; la sanitizzazione applicata a valle garantisce che eventuali riflessioni interne o tag `˜˜˜` non trapelino nella risposta finale.
 - **Retrieval su invocazione**: il contesto documentale non viene sempre precaricato nel prompt, ma iniettato solo quando il modello lo richiede, riducendo consumo di token e rumore semantico.
 - **Advisor come punto unico di osservabilità**: il tracciamento dei messaggi è centralizzato in un advisor Spring AI, indipendente dal servizio che orchestra la chat.
-- **Contesto in-process**: `RetrievedDocumentsContext` e la cronologia vivono in memoria (strutture thread-safe) e sono quindi limitati a una singola istanza dell'applicazione.
+- **Contesto in-process**: `RetrievedDocumentsContext` e la cronologia vivono in memoria e sono quindi limitati a una singola istanza dell'applicazione.
 
 ---
 
@@ -83,7 +83,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 | Spring AI Starter | `spring-ai-starter-model-ollama`, `spring-ai-starter-vector-store-pgvector` |
 | Modello LLM ed embedding | Ollama (locale) |
 | Database | PostgreSQL 17 + estensione `pgvector` |
-| Estrazione testo | Apache Tika 4.1.0 (`tika-core`, `tika-parsers-standard-package`), Apache PDFBox 3.0.6 |
+| Estrazione testo | Apache Tika 4.1.0 (`tika-core`, `tika-parsers-standard-package`) |
 | Accesso dati | `spring-boot-starter-jdbc` (`JdbcTemplate`, query parametrizzate) |
 | Utility | Lombok (scope `provided`) |
 | Build | Maven 3.9+ |
@@ -345,12 +345,12 @@ I tool sono metodi Java annotati con `@Tool`, registrati sul `ChatClient` e invo
 | Tool | Componente | Parametri | Comportamento |
 |---|---|---|---|
 | `searchDocuments` | `DocumentTools` | `query` | Ricerca semantica sul VectorStore con `top-k` chunk; i chunk recuperati vengono accumulati nel contesto e riportati in `sources` |
-| `findOrdersByStatus` | `OrderTools` | `status` | Ricerca ordini per stato. Whitelist `NEW`, `IN_PROGRESS`, `SHIPPED`, `CANCELLED`; default `IN_PROGRESS` se lo stato è omesso; massimo 100 righe ordinate per data di consegna prevista |
+| `findOrdersByStatus` | `OrderTools` | `status` | Ricerca ordini per stato. Se lo stato è omesso per default viene impostato a  `IN_PROGRESS`; massimo 100 righe ordinate per data di consegna prevista |
 | `findOrderById` | `OrderTools` | `orderId` | Dettaglio di un ordine tramite identificativo numerico positivo |
 | `sumOrderAmountsByStatus` | `OrderTools` | `status` | Somma degli importi degli ordini in uno stato (`COALESCE(SUM(amount), 0)`) |
 | `getCurrentDateTime` | `OtherTools` | — | Data e ora correnti |
 
-Uno stato non riconosciuto non produce errore: la ricerca restituisce un elenco vuoto e la somma `0`, evitando di tradurre un valore arbitrario in una query non parametrizzata.
+Se un tool viene invocato con uno stato non riconosciuto non produce errore: la ricerca restituisce un elenco vuoto e la somma `0`, evitando di tradurre un valore arbitrario in una query non parametrizzata.
 
 ---
 
@@ -359,7 +359,7 @@ Uno stato non riconosciuto non produce errore: la ricerca restituisce un elenco 
 ### Ingestion
 
 1. Rilevamento del formato tramite Tika (con il nome file come hint): il risultato è normalizzato in maiuscolo (`PDF`, `TXT`, `DOCX`, …); un tipo non riconoscibile viene marcato come `UNKNOWN`.
-2. Estrazione del testo: Tika con i parser standard (PDFBox per i PDF).
+2. Estrazione del testo: Tika con i parser standard.
 3. Verifica che il testo non sia vuoto: un documento senza testo estraibile viene rifiutato.
 4. Chunking a **caratteri**, con dimensione `1200` e overlap `180`, privilegiando come punto di taglio i confini naturali (paragrafo, riga, spazio) quando disponibili oltre metà chunk.
 5. Indicizzazione: ogni chunk diventa un `Document` con metadati:

@@ -23,9 +23,6 @@ public class OrderTools implements AiTool {
     public List<OrderSummary> findOrdersByStatus(
             @ToolParam(description = "Stato dell'ordine: NEW, IN_PROGRESS, SHIPPED oppure CANCELLED") String status) {
         String normalized = status == null || status.isBlank() ? "IN_PROGRESS" : status.trim().toUpperCase();
-        if (!List.of("NEW", "IN_PROGRESS", "SHIPPED", "CANCELLED").contains(normalized)) {
-            return List.of();
-        }
         return orderRepository.findByStatus(normalized);
     }
 
@@ -42,9 +39,6 @@ public class OrderTools implements AiTool {
     public BigDecimal sumOrderAmountsByStatus(
             @ToolParam(description = "Stato dell'ordine: NEW, IN_PROGRESS, SHIPPED oppure CANCELLED") String status) {
         String normalized = status == null || status.isBlank() ? "IN_PROGRESS" : status.trim().toUpperCase();
-        if (!List.of("NEW", "IN_PROGRESS", "SHIPPED", "CANCELLED").contains(normalized)) {
-            return BigDecimal.ZERO;
-        }
         return orderRepository.sumAmountsByStatus(normalized);
     }
 }

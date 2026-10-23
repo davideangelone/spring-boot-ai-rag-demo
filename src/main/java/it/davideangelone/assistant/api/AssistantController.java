@@ -10,6 +10,7 @@ import it.davideangelone.assistant.model.ChatMessageDto;
 import it.davideangelone.assistant.service.AssistantService;
 import it.davideangelone.assistant.service.ChatHistoryService;
 import jakarta.servlet.http.HttpSession;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,10 +37,7 @@ public class AssistantController {
     }
 
     @PostMapping("/ask")
-    public AskResponse ask(@RequestBody AskRequest request, HttpSession session) {
-        if (request == null || request.question() == null || request.question().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Il campo 'question' è obbligatorio.");
-        }
+    public AskResponse ask(@RequestBody @Valid AskRequest request, HttpSession session) {
         String conversationId = (String) session.getAttribute(CONVERSATION_ID);
 
         if (conversationId == null) {
