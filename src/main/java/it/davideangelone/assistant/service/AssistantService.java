@@ -70,7 +70,6 @@ public class AssistantService {
 
         ChatResponse response = chatClient.prompt(getPrompt(question))
                 .system(SYSTEM_PROMPT)
-                .user(question)
                 .advisors(advisor -> advisor
                         .param(Constants.CONVERSATION_ID, conversationId)
                         .param(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext)

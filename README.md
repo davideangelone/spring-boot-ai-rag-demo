@@ -29,7 +29,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 
 ## Funzionalità
 
-- **API REST** per domande in linguaggio naturale, con mantenimento della conversazione per sessione HTTP.
+- **API REST** per domande in linguaggio naturale.
 - **RAG agentico**: il modello decide autonomamente quando interrogare l'indice documentale, invocando il tool `searchDocuments`; la ricerca semantica avviene solo se necessaria.
 - **Ingestion documentale** via multipart con Apache Tika: estrazione del testo, chunking con overlap e metadati `source`, `chunk`, `documentType`, `contentType`.
 - **Indicizzazione unificata**: PDF e TXT (e gli altri formati supportati da Tika) finiscono nello stesso VectorStore `pgvector`; la ricerca è globale e non applica filtri sul formato del documento.
@@ -64,13 +64,13 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 2. `AssistantService` invoca il `ChatClient` con un prompt di sistema che definisce ruolo, lingua, divieto di inventare dati e regole strutturali di output.
 3. Il modello decide se utilizzare i tool. Ogni invocazione di `DocumentTools.searchDocuments` esegue una `similaritySearch` sul VectorStore e accumula i chunk in `RetrievedDocumentsContext` tramite `ToolContext`.
 4. `MessageTrackerAdvisor` intercetta la richiesta e la risposta, assegnando un numero progressivo al messaggio e registrando timestamp, modello e fonti.
-5. `ReasoningSanitizer` estrae i blocchi `˜˜˜` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
+5. `ReasoningSanitizer` estrae i blocchi `<think>` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
 6. La risposta HTTP contiene `answer`, `thinking`, `sources`, `model` e `conversationId`.
 7. Gli eventuali tool provenienti dai server MCP sono registrati automaticamente e disponibili per l'invocazione dal modello.
 
 ### Scelte architetturali
 
-- **Separazione reasoning/answer**: il modello è istruito a compilare due campi distinti; la sanitizzazione applicata a valle garantisce che eventuali riflessioni interne o tag `˜˜˜` non trapelino nella risposta finale.
+- **Separazione reasoning/answer**: il modello è istruito a compilare due campi distinti; la sanitizzazione applicata a valle garantisce che eventuali riflessioni interne o tag `<think>` non trapelino nella risposta finale.
 - **Retrieval su invocazione**: il contesto documentale non viene sempre precaricato nel prompt, ma iniettato solo quando il modello lo richiede, riducendo consumo di token e rumore semantico.
 - **Advisor come punto unico di osservabilità**: il tracciamento dei messaggi è centralizzato in un advisor Spring AI, indipendente dal servizio che orchestra la chat.
 - **Contesto in-process**: `RetrievedDocumentsContext` e la cronologia vivono in memoria e sono quindi limitati a una singola istanza dell'applicazione.
@@ -143,7 +143,7 @@ L'applicazione è disponibile su `http://localhost:8080`. Al primo avvio:
 
 - `schema.sql` abilita l'estensione `vector` e crea la tabella `orders` (con vincolo `CHECK` sugli stati ammessi);
 - `data.sql` carica i 6 ordini dimostrativi;
-- Spring AI inizializza lo schema del VectorStore (tabella `vector_store`, indice HNSW su similarità coseno.
+- Spring AI inizializza lo schema del VectorStore (tabella `vector_store`, indice HNSW su similarità coseno).
 
 Entrambi gli script SQL sono idempotenti (`CREATE TABLE IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
 
@@ -257,7 +257,7 @@ curl -X POST http://localhost:8080/api/ask \
 
 curl -X POST http://localhost:8080/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"question":"Ho una fattura da pagare in cui l''ordine non corrisponde a quanto richiesto, cosa devo fare?"}'
+  -d '{"question":"Ho una fattura da pagare in cui un ordine non corrisponde a quanto richiesto, cosa devo fare?"}'
 
 # Domanda transazionale (tool sul database)
 curl -X POST http://localhost:8080/api/ask \
@@ -413,7 +413,7 @@ Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dat
 
 La risposta viene poi normalizzata da `ReasoningSanitizer`, che:
 
-- estrae i blocchi `˜˜˜` / `<thought>` (anche non chiusi) verso il campo `thinking`;
+- estrae i blocchi `<think>` / `<thought>` (anche non chiusi) verso il campo `thinking`;
 - preserva integralmente tabelle Markdown e a capo nel campo `answer`;
 - recupera nel `answer` eventuali tabelle erroneamente prodotte nel `thinking`;
 - applica il fallback `Il modello non ha restituito una risposta.` quando la risposta è assente.
@@ -447,10 +447,16 @@ spring:
     mcp:
       client:
         enabled: true
-        connections:
-          custom-tool:
-            url: https://my-custom-mcp-server.example.com
-            endpoint: /mcp
+        name: ai-agent-qa-demo
+        version: 1.0.0
+        type: SYNC
+        request-timeout: 20s
+
+        streamable-http:
+          connections:
+            date-time-tools:
+              url: https://date-time-tools.iabhishek.workers.dev
+              endpoint: /mcp
 ```
 
 ### Flussi di lavoro
@@ -465,20 +471,41 @@ spring:
 
 ## Pipeline RAG
 
-*(Identico alla sezione precedente, incluso per completezza)*
-
 ### Ingestion
 
-1. Rilevamento del formato tramite Tika...
-2. *(same as before)*
+1. Rilevamento del formato tramite Tika (con il nome file come hint): il risultato è normalizzato in maiuscolo (`PDF`, `TXT`, `DOCX`, …); un tipo non riconoscibile viene marcato come `UNKNOWN`.
+2. Estrazione del testo: Tika con i parser standard.
+3. Verifica che il testo non sia vuoto: un documento senza testo estraibile viene rifiutato.
+4. Chunking a **caratteri**, con dimensione `1200` e overlap `180`, privilegiando come punto di taglio i confini naturali (paragrafo, riga, spazio) quando disponibili oltre metà chunk.
+5. Indicizzazione: ogni chunk diventa un `Document` con metadati:
+
+| Metadato | Contenuto |
+|---|---|
+| `source` | Nome file originale |
+| `chunk` | Indice del chunk (1-based) |
+| `documentType` | Formato rilevato, in minuscolo |
+| `contentType` | MIME type rilevato da Tika |
+
+6. `vectorStore.add(...)`: tutti i formati confluiscono nella stessa tabella `vector_store`.
 
 ### Retrieval
 
-*(same as before)*
+La ricerca viene eseguita **solo** quando il modello invoca `searchDocuments`:
+
+- `VectorStore.similaritySearch` con `top-k` configurabile (`app.rag.top-k`, default `6`);
+- indice **HNSW** con metrica **COSINE_DISTANCE** su vettori a **768 dimensioni**;
+- la ricerca è **globale**: non distingue per formato né per documento, e può quindi restituire chunk provenienti da file diversi.
 
 ### Generazione
 
-*(same as before)*
+Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dati transazionali, divieto di inventare informazioni, distinzione tra dati di database e contenuti documentali, output dei record in tabelle Markdown e assenza di riferimenti a nomi di tool o dettagli implementativi.
+
+La risposta viene poi normalizzata da `ReasoningSanitizer`, che:
+
+- estrae i blocchi `<think>` / `<thought>` (anche non chiusi) verso il campo `thinking`;
+- preserva integralmente tabelle Markdown e a capo nel campo `answer`;
+- recupera nel `answer` eventuali tabelle erroneamente prodotte nel `thinking`;
+- applica il fallback `Il modello non ha restituito una risposta.` quando la risposta è assente.
 
 ---
 
@@ -528,7 +555,7 @@ mvn test
 La suite copre 11 test:
 
 - **`DocumentIngestionServiceTest`** — comportamento dello splitting: chunk multipli con overlap, nessun chunk vuoto, rispetto della dimensione massima, documento breve in un unico chunk.
-- **`ReasoningSanitizerTest`** — separazione reasoning/answer, estrazione dei tag `˜˜˜` / `<thought>` (chiusi, non chiusi, case-insensitive, multipli), gestione di input nulli o vuoti, preservazione delle tabelle Markdown e recupero delle tabelle dal campo reasoning.
+- **`ReasoningSanitizerTest`** — separazione reasoning/answer, estrazione dei tag `<think>` / `<thought>` (chiusi, non chiusi, case-insensitive, multipli), gestione di input nulli o vuoti, preservazione delle tabelle Markdown e recupero delle tabelle dal campo reasoning.
 
 ---
 

@@ -60,4 +60,4 @@ logging:
 app:
   rag:
     # Numero massimo di chunk semanticamente pertinenti recuperati dall'intero indice (TXT + PDF).
-    top-k: 6
+    top-k: ${APP_RAG_TOP_K:6}
