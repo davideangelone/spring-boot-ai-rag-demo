@@ -38,6 +38,20 @@ spring:
         schema-name: public
         table-name: vector_store
 
+    mcp:
+      client:
+        enabled: true
+        name: ai-agent-qa-demo
+        version: 1.0.0
+        type: SYNC
+        request-timeout: 20s
+
+        streamable-http:
+          connections:
+            date-time-tools:
+              url: https://date-time-tools.iabhishek.workers.dev
+              endpoint: /mcp
+
 logging:
   level:
     it.davideangelone.assistant: INFO

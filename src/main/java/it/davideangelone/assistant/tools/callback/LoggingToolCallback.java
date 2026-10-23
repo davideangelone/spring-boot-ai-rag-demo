@@ -17,9 +17,15 @@ import static it.davideangelone.assistant.constants.Constants.MESSAGE_COUNTER_TO
 public class LoggingToolCallback implements ToolCallback {
 
     private final ToolCallback delegate;
+    private String serverName;
 
     public LoggingToolCallback(ToolCallback delegate) {
         this.delegate = delegate;
+    }
+
+    public LoggingToolCallback(ToolCallback delegate, String serverName) {
+        this.delegate = delegate;
+        this.serverName = serverName;
     }
 
     @Override
@@ -49,17 +55,25 @@ public class LoggingToolCallback implements ToolCallback {
     private @NonNull String execute(@NonNull String toolInput, Supplier<String> invocation, Integer messageNumber) {
         String name = delegate.getToolDefinition().name();
         String msgNumber = (null == messageNumber) ? "N/A" : messageNumber.toString();
+        String logToolInfo = getLogToolInfo(name, msgNumber);
         long start = System.nanoTime();
 
-        log.info("[TOOL] [{}] - Msg {} - INPUT: {}", name, msgNumber, toolInput);
+        log.info("{} - INPUT: {}", logToolInfo, toolInput);
         try {
             String result = invocation.get();
-            log.info("[TOOL] [{}] - Msg {} - OUTPUT ({} ms): {}", name, msgNumber, getElapsedNanos(start), result);
+            log.info("{} - OUTPUT ({} ms): {}", logToolInfo, getElapsedNanos(start), result);
             return result;
         } catch (RuntimeException e) {
-            log.error("[TOOL] [{}] - Msg {} - FAILED ({} ms), input: {}", name, msgNumber, getElapsedNanos(start), toolInput, e);
+            log.error("{} - FAILED ({} ms), input: {}", logToolInfo, getElapsedNanos(start), toolInput, e);
             throw e;
         }
+    }
+
+    private String getLogToolInfo(String name, String messageNumber) {
+        if (null == serverName) {
+            return String.format("[TOOL] [%s] - Msg %s", name, messageNumber);
+        }
+        return String.format("[TOOL] [Server %s] [%s] - Msg %s", serverName, name, messageNumber);
     }
 
     private long getElapsedNanos(long start) {

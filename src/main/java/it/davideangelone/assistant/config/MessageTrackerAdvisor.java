@@ -106,7 +106,7 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
         MemoryLogMessageMetadata meta = new MemoryLogMessageMetadata(messageNumber, now, role.toString(), content, null, null, null, null);
         memoryLog.computeIfAbsent(conversationId, k -> new ArrayList<>()).add(meta);
 
-        log.info("[CHAT-USER-REQUEST] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(content, 100));
+        log.info("[CHAT-USER-REQUEST] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(StringUtils.normalizeSpace(content), 100));
     }
 
     private void logAnswer(String conversationId, Integer messageNumber, MessageType role, String answer, String thinking, List<SourceReference> sources, String modelName) {
@@ -115,8 +115,8 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
         MemoryLogMessageMetadata meta = new MemoryLogMessageMetadata(messageNumber, now, role.toString(), null, answer, thinking, sources, modelName);
         memoryLog.computeIfAbsent(conversationId, k -> new ArrayList<>()).add(meta);
 
-        log.info("[CHAT-ASSISTANT-ANSWER] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(answer, 100));
-        log.info("[CHAT-ASSISTANT-THINKING] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(thinking, 100));
+        log.info("[CHAT-ASSISTANT-ANSWER] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(StringUtils.normalizeSpace(answer), 100));
+        log.info("[CHAT-ASSISTANT-THINKING] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(StringUtils.normalizeSpace(thinking), 100));
     }
 
     private String getConversationId(Map<String, Object> context) {
