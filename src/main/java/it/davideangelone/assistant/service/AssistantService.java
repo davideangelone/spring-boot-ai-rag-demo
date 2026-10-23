@@ -4,17 +4,15 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import it.davideangelone.assistant.api.AskResponse;
 import it.davideangelone.assistant.constants.Constants;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import it.davideangelone.assistant.model.SourceReference;
-import it.davideangelone.assistant.tools.DocumentTools;
-import it.davideangelone.assistant.tools.OrderTools;
-import it.davideangelone.assistant.tools.OtherTools;
 import it.davideangelone.assistant.utils.DocumentManager;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -49,35 +47,26 @@ public class AssistantService {
             - Distingui i dati provenienti dal database dalle informazioni provenienti dai documenti aziendali.
             """;
 
+    private final ConcurrentHashMap<String, AtomicInteger> messageCounters = new ConcurrentHashMap<>();
     private final ChatClient chatClient;
     private final ChatModel chatModel;
     private final DocumentIngestionService ingestionService;
     private final DocumentManager documentManager;
-    private final OrderTools orderTools;
-    private final DocumentTools documentTools;
-    private final OtherTools otherTools;
 
     public AssistantService(ChatClient chatClient,
                             ChatModel chatModel,
                             DocumentIngestionService ingestionService,
-                            DocumentManager documentManager,
-                            OrderTools orderTools,
-                            DocumentTools documentTools,
-                            OtherTools otherTools) {
+                            DocumentManager documentManager) {
         this.chatClient = chatClient;
         this.chatModel = chatModel;
         this.ingestionService = ingestionService;
         this.documentManager = documentManager;
-        this.orderTools = orderTools;
-        this.documentTools = documentTools;
-        this.otherTools = otherTools;
     }
 
     public AskResponse ask(String question, String conversationId) {
 
         RetrievedDocumentsContext retrievedContext = new RetrievedDocumentsContext();
-
-        var tools = new Object[]{orderTools, documentTools, otherTools};
+        int messageNumber = getCurrentMessageNumber(conversationId);
 
         ChatResponse response = chatClient.prompt(getPrompt(question))
                 .system(SYSTEM_PROMPT)
@@ -85,9 +74,10 @@ public class AssistantService {
                 .advisors(advisor -> advisor
                         .param(Constants.CONVERSATION_ID, conversationId)
                         .param(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext)
+                        .param(Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber)
                         .param(Constants.CHAT_OPTIONS, chatModel.getOptions()))
-                .tools(tools)
-                .toolContext(Map.of(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext))
+                .toolContext(Map.of(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext,
+                                    Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber))
                 .call()
                 .chatResponse();
 
@@ -104,8 +94,6 @@ public class AssistantService {
                 .map(Object::toString)
                 .orElse(null);
 
-        log.info("Raw response: {}", StringUtils.abbreviate(rawResponse, 100));
-        log.info("Raw thinking: {}", StringUtils.abbreviate(rawThinking, 100));
         List<Document> retrievedDocuments = retrievedContext.getDocuments();
         List<SourceReference> sources = documentManager.getDocumentsSourceReferences(retrievedDocuments);
 
@@ -117,6 +105,11 @@ public class AssistantService {
                 sources,
                 chatModel.getOptions().getModel(),
                 conversationId);
+    }
+
+    private int getCurrentMessageNumber(String conversationId) {
+        AtomicInteger counter = messageCounters.computeIfAbsent(conversationId, k -> new AtomicInteger(0));
+        return counter.incrementAndGet();
     }
 
     private Prompt getPrompt(String question) {

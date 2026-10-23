@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import it.davideangelone.assistant.constants.Constants;
 import it.davideangelone.assistant.model.MemoryLogMessageMetadata;
@@ -14,6 +13,7 @@ import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import it.davideangelone.assistant.model.SourceReference;
 import it.davideangelone.assistant.utils.DocumentManager;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NonNull;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -27,12 +27,13 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
 
 import static it.davideangelone.assistant.constants.Constants.CONVERSATION_ID;
+import static it.davideangelone.assistant.constants.Constants.MESSAGE_COUNTER_TOOL_CONTEXT;
+import static it.davideangelone.assistant.constants.Constants.SEARCH_DOCUMENT_TOOL_CONTEXT;
 
 @Slf4j
 public class MessageTrackerAdvisor implements BaseAdvisor {
 
     private final ConcurrentHashMap<String, List<MemoryLogMessageMetadata>> memoryLog = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, AtomicInteger> messageCounters = new ConcurrentHashMap<>();
     private final DocumentManager documentManager;
 
     public MessageTrackerAdvisor(DocumentManager documentManager) {
@@ -52,11 +53,12 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
     @Override
     public @NonNull ChatClientRequest before(@NonNull ChatClientRequest request, @NonNull AdvisorChain chain) {
         String conversationId = getConversationId(request.context());
+        Integer messageNumber = getCurrentMessageNumber(request.context());
 
         if (!request.prompt().getInstructions().isEmpty()) {
             Message lastMessage = request.prompt().getInstructions().getLast();
             if (lastMessage.getMessageType() == MessageType.USER) {
-                logRequest(conversationId, MessageType.USER, lastMessage.getText());
+                logRequest(conversationId, messageNumber, MessageType.USER, lastMessage.getText());
             }
         }
 
@@ -66,6 +68,7 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
     @Override
     public @NonNull ChatClientResponse after(@NonNull ChatClientResponse response, @NonNull AdvisorChain chain) {
         String conversationId = getConversationId(response.context());
+        Integer messageNumber = getCurrentMessageNumber(response.context());
 
         String answer = Optional.ofNullable(response.chatResponse())
                 .map(ChatResponse::getResult)
@@ -82,42 +85,40 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
                 .orElse("");
 
         if (!answer.isBlank()) {
-            RetrievedDocumentsContext retrievedContext = (RetrievedDocumentsContext) response.context().get(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT);
-            List<SourceReference> sources = Optional.ofNullable(retrievedContext)
-                    .map(RetrievedDocumentsContext::getDocuments)
-                    .map(documentManager::getDocumentsSourceReferences)
-                    .orElse(List.of());
+            List<SourceReference> sources = getSources(response);
             String modelName = getModelName(response.context());
 
-            logAnswer(conversationId, MessageType.ASSISTANT, answer, thinking, sources, modelName);
+            logAnswer(conversationId, messageNumber, MessageType.ASSISTANT, answer, thinking, sources, modelName);
         }
 
         return response;
     }
 
-    private void logRequest(String conversationId, MessageType role, String content) {
-        int msgNumber = getCurrentMessageNumber(conversationId);
-        Instant now = Instant.now();
-
-        MemoryLogMessageMetadata meta = new MemoryLogMessageMetadata(msgNumber, now, role.toString(), content, null, null, null, null);
-        memoryLog.computeIfAbsent(conversationId, k -> new ArrayList<>()).add(meta);
-
-        log.info("[CHAT-REQUEST] [{}] Msg {} | {} | {}", now, msgNumber, role, content);
+    private @NonNull List<SourceReference> getSources(@NonNull ChatClientResponse response) {
+        RetrievedDocumentsContext retrievedContext = (RetrievedDocumentsContext) response.context().get(SEARCH_DOCUMENT_TOOL_CONTEXT);
+        return Optional.ofNullable(retrievedContext)
+                .map(RetrievedDocumentsContext::getDocuments)
+                .map(documentManager::getDocumentsSourceReferences)
+                .orElse(List.of());
     }
 
-    private void logAnswer(String conversationId, MessageType role, String answer, String thinking, List<SourceReference> sources, String modelName) {
-        int msgNumber = getCurrentMessageNumber(conversationId);
+    private void logRequest(String conversationId, Integer messageNumber, MessageType role, String content) {
         Instant now = Instant.now();
 
-        MemoryLogMessageMetadata meta = new MemoryLogMessageMetadata(msgNumber, now, role.toString(), null, answer, thinking, sources, modelName);
+        MemoryLogMessageMetadata meta = new MemoryLogMessageMetadata(messageNumber, now, role.toString(), content, null, null, null, null);
         memoryLog.computeIfAbsent(conversationId, k -> new ArrayList<>()).add(meta);
 
-        log.info("[CHAT-ANSWER] [{}] Msg {} | {} | {}", now, msgNumber, role, answer);
+        log.info("[CHAT-USER-REQUEST] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(content, 100));
     }
 
-    private int getCurrentMessageNumber(String conversationId) {
-        AtomicInteger counter = messageCounters.computeIfAbsent(conversationId, k -> new AtomicInteger(0));
-        return counter.incrementAndGet();
+    private void logAnswer(String conversationId, Integer messageNumber, MessageType role, String answer, String thinking, List<SourceReference> sources, String modelName) {
+        Instant now = Instant.now();
+
+        MemoryLogMessageMetadata meta = new MemoryLogMessageMetadata(messageNumber, now, role.toString(), null, answer, thinking, sources, modelName);
+        memoryLog.computeIfAbsent(conversationId, k -> new ArrayList<>()).add(meta);
+
+        log.info("[CHAT-ASSISTANT-ANSWER] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(answer, 100));
+        log.info("[CHAT-ASSISTANT-THINKING] [{}] Msg {} | {} | {}", now, messageNumber, role, StringUtils.abbreviate(thinking, 100));
     }
 
     private String getConversationId(Map<String, Object> context) {
@@ -126,6 +127,10 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
             convId = "default";
         }
         return convId;
+    }
+
+    private Integer getCurrentMessageNumber(Map<String, Object> context) {
+        return (Integer) context.get(MESSAGE_COUNTER_TOOL_CONTEXT);
     }
 
     private String getModelName(Map<String, Object> context) {

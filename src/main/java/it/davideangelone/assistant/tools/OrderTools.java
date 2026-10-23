@@ -6,14 +6,12 @@ import java.util.Optional;
 
 import it.davideangelone.assistant.order.OrderRepository;
 import it.davideangelone.assistant.order.OrderSummary;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 @Component
-@Slf4j
-public class OrderTools {
+public class OrderTools implements AiTool {
 
     private final OrderRepository orderRepository;
 
@@ -24,7 +22,6 @@ public class OrderTools {
     @Tool(description = "Cerca gli ordini per stato. Stati ammessi: NEW, IN_PROGRESS, SHIPPED, CANCELLED. Se lo stato non è specificato, usa IN_PROGRESS.")
     public List<OrderSummary> findOrdersByStatus(
             @ToolParam(description = "Stato dell'ordine: NEW, IN_PROGRESS, SHIPPED oppure CANCELLED") String status) {
-        log.info("[TOOL] Usato tool findOrdersByStatus con parametro {}", status);
         String normalized = status == null || status.isBlank() ? "IN_PROGRESS" : status.trim().toUpperCase();
         if (!List.of("NEW", "IN_PROGRESS", "SHIPPED", "CANCELLED").contains(normalized)) {
             return List.of();
@@ -35,7 +32,6 @@ public class OrderTools {
     @Tool(description = "Recupera i dati di un ordine tramite il suo identificativo numerico.")
     public Optional<OrderSummary> findOrderById(
             @ToolParam(description = "Identificativo numerico dell'ordine") Long orderId) {
-        log.info("[TOOL] Usato tool findOrderById con parametro {}", orderId);
         if (orderId == null || orderId <= 0) {
             return Optional.empty();
         }
@@ -45,7 +41,6 @@ public class OrderTools {
     @Tool(description = "Calcola la somma degli importi degli ordini in uno specifico stato. Stati ammessi: NEW, IN_PROGRESS, SHIPPED, CANCELLED.")
     public BigDecimal sumOrderAmountsByStatus(
             @ToolParam(description = "Stato dell'ordine: NEW, IN_PROGRESS, SHIPPED oppure CANCELLED") String status) {
-        log.info("[TOOL] Usato tool sumOrderAmountsByStatus con parametro {}", status);
         String normalized = status == null || status.isBlank() ? "IN_PROGRESS" : status.trim().toUpperCase();
         if (!List.of("NEW", "IN_PROGRESS", "SHIPPED", "CANCELLED").contains(normalized)) {
             return BigDecimal.ZERO;

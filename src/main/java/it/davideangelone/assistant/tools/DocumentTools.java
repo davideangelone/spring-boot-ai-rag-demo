@@ -4,7 +4,6 @@ import java.util.List;
 
 import it.davideangelone.assistant.constants.Constants;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.tool.annotation.Tool;
@@ -15,8 +14,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
-@Slf4j
-public class DocumentTools {
+public class DocumentTools implements AiTool {
 
     private final VectorStore vectorStore;
     private final int retrievalTopK;
@@ -35,7 +33,6 @@ public class DocumentTools {
     public List<Document> searchDocuments(
             @ToolParam(description = "Argomento da cercare nei documenti aziendali") String query,
             ToolContext toolContext) {
-        log.info("[TOOL] Usato tool searchDocuments");
         List<Document> documents = vectorStore.similaritySearch(
                 SearchRequest.builder()
                         .query(query)
