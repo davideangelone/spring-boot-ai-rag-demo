@@ -1,6 +1,5 @@
-package it.davideangelone.assistant.document;
+package it.davideangelone.assistant.service;
 
-import it.davideangelone.assistant.service.DocumentIngestionService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

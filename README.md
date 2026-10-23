@@ -468,8 +468,7 @@ La suite copre 11 test:
     │   ├── schema.sql            # estensione vector + tabella orders
     │   └── data.sql              # ordini dimostrativi
     └── test/java/it/davideangelone/assistant/
-        ├── document/             # DocumentIngestionServiceTest
-        └── service/              # ReasoningSanitizerTest
+        └── service/             # DocumentIngestionServiceTest, ReasoningSanitizerTest
 ```
 
 ---
