@@ -61,12 +61,12 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 2. `AssistantService` invoca il `ChatClient` con un prompt di sistema che definisce ruolo, lingua, divieto di inventare dati e regole strutturali di output.
 3. Il modello decide se utilizzare i tool. Ogni invocazione di `DocumentTools.searchDocuments` esegue una `similaritySearch` sul VectorStore e accumula i chunk in `RetrievedDocumentsContext` tramite `ToolContext`.
 4. `MessageTrackerAdvisor` intercetta la richiesta e la risposta, assegnando un numero progressivo al messaggio e registrando timestamp, modello e fonti.
-5. `ReasoningSanitizer` estrae i blocchi `<think>` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
+5. `ReasoningSanitizer` estrae i blocchi `˜˜˜` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
 6. La risposta HTTP contiene `answer`, `thinking`, `sources`, `model` e `conversationId`.
 
 ### Scelte architetturali
 
-- **Separazione reasoning/answer**: il modello è istruito a compilare due campi distinti; la sanitizzazione applicata a valle garantisce che eventuali riflessioni interne o tag `<think>` non trapelino nella risposta finale.
+- **Separazione reasoning/answer**: il modello è istruito a compilare due campi distinti; la sanitizzazione applicata a valle garantisce che eventuali riflessioni interne o tag `˜˜˜` non trapelino nella risposta finale.
 - **Retrieval su invocazione**: il contesto documentale non viene sempre precaricato nel prompt, ma iniettato solo quando il modello lo richiede, riducendo consumo di token e rumore semantico.
 - **Advisor come punto unico di osservabilità**: il tracciamento dei messaggi è centralizzato in un advisor Spring AI, indipendente dal servizio che orchestra la chat.
 - **Contesto in-process**: `RetrievedDocumentsContext` e la cronologia vivono in memoria (strutture thread-safe) e sono quindi limitati a una singola istanza dell'applicazione.
@@ -230,6 +230,10 @@ curl -X POST http://localhost:8080/api/ask \
   -H "Content-Type: application/json" \
   -d '{"question":"Qual è la procedura per gestire gli ordini in ritardo?"}'
 
+curl -X POST http://localhost:8080/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Ho una fattura da pagare in cui l''ordine non corrisponde a quanto richiesto, cosa devo fare?"}'
+
 # Domanda transazionale (tool sul database)
 curl -X POST http://localhost:8080/api/ask \
   -H "Content-Type: application/json" \
@@ -239,18 +243,6 @@ curl -X POST http://localhost:8080/api/ask \
 curl -X POST http://localhost:8080/api/ask \
   -H "Content-Type: application/json" \
   -d '{"question":"Quali ordini sono in lavorazione e cosa prevede la procedura per quelli in ritardo?"}'
-```
-
-Per mantenere il contesto conversazionale tra più richieste, è necessario conservare il cookie di sessione:
-
-```bash
-curl -c cookies.txt -b cookies.txt -X POST http://localhost:8080/api/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Qual è la procedura per gestire gli ordini in ritardo?"}'
-
-curl -c cookies.txt -b cookies.txt -X POST http://localhost:8080/api/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question":"E quali clienti risultano coinvolti?"}'
 ```
 
 ### 2. `POST /api/new` — nuova conversazione
@@ -332,7 +324,7 @@ curl -c cookies.txt -b cookies.txt http://localhost:8080/api/history
 | Campo | Tipo | Descrizione |
 |---|---|---|
 | `name` | `string` | Ruolo del messaggio (`USER` / `ASSISTANT`) |
-| `text` | `string` | Contenuto grezto del messaggio (presente per i messaggi utente) |
+| `text` | `string` | Contenuto grezzo del messaggio (presente per i messaggi utente) |
 | `answer` | `string` | Risposta strutturata (presente per i messaggi dell'assistente) |
 | `thinking` | `string` | Processo logico interno e pianificazione, separato dalla risposta |
 | `metadata` | `object` | Timestamp, modello e fonti citate |
@@ -372,12 +364,12 @@ Uno stato non riconosciuto non produce errore: la ricerca restituisce un elenco 
 4. Chunking a **caratteri**, con dimensione `1200` e overlap `180`, privilegiando come punto di taglio i confini naturali (paragrafo, riga, spazio) quando disponibili oltre metà chunk.
 5. Indicizzazione: ogni chunk diventa un `Document` con metadati:
 
-   | Metadato | Contenuto |
-   |---|---|
-   | `source` | Nome file originale |
-   | `chunk` | Indice del chunk (1-based) |
-   | `documentType` | Formato rilevato, in minuscolo |
-   | `contentType` | MIME type rilevato da Tika |
+| Metadato | Contenuto |
+|---|---|
+| `source` | Nome file originale |
+| `chunk` | Indice del chunk (1-based) |
+| `documentType` | Formato rilevato, in minuscolo |
+| `contentType` | MIME type rilevato da Tika |
 
 6. `vectorStore.add(...)`: tutti i formati confluiscono nella stessa tabella `vector_store`.
 
@@ -395,7 +387,7 @@ Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dat
 
 La risposta viene poi normalizzata da `ReasoningSanitizer`, che:
 
-- estrae i blocchi `<think>` / `<thought>` (anche non chiusi) verso il campo `thinking`;
+- estrae i blocchi `˜˜˜` / `<thought>` (anche non chiusi) verso il campo `thinking`;
 - preserva integralmente tabelle Markdown e a capo nel campo `answer`;
 - recupera nel `answer` eventuali tabelle erroneamente prodotte nel `thinking`;
 - applica il fallback `Il modello non ha restituito una risposta.` quando la risposta è assente.
@@ -448,7 +440,7 @@ mvn test
 La suite copre 11 test:
 
 - **`DocumentIngestionServiceTest`** — comportamento dello splitting: chunk multipli con overlap, nessun chunk vuoto, rispetto della dimensione massima, documento breve in un unico chunk.
-- **`ReasoningSanitizerTest`** — separazione reasoning/answer, estrazione dei tag `<think>` / `<thought>` (chiusi, non chiusi, case-insensitive, multipli), gestione di input nulli o vuoti, preservazione delle tabelle Markdown e recupero delle tabelle dal campo reasoning.
+- **`ReasoningSanitizerTest`** — separazione reasoning/answer, estrazione dei tag `˜˜˜` / `<thought>` (chiusi, non chiusi, case-insensitive, multipli), gestione di input nulli o vuoti, preservazione delle tabelle Markdown e recupero delle tabelle dal campo reasoning.
 
 ---
 
