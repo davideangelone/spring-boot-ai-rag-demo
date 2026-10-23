@@ -18,6 +18,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 - [Configurazione](#configurazione)
 - [API REST](#api-rest)
 - [Tool disponibili](#tool-disponibili)
+- [Integrazione MCP client](#integrazione-mcp-client)
 - [Pipeline RAG](#pipeline-rag)
 - [Persistenza dei dati](#persistenza-dei-dati)
 - [Test](#test)
@@ -37,6 +38,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 - **Riferimenti alle fonti**: ogni risposta include i documenti da cui provengono i chunk recuperati (`sources`).
 - **Cronologia conversazionale** esposta via API, con tracciamento per singola conversazione degli scambi, del modello utilizzato e delle fonti citate.
 - **Dataset dimostrativo** con 6 ordini fittizi in 4 stati e vincoli di integrità applicati lato database.
+- **Integrazione MCP client**: connessione a server MCP esterni per l'estensione dei tools disponibili al modello, con supporto sync e registration automatica degli strumenti.
 
 ---
 
@@ -48,12 +50,13 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 |---|---|
 | `api` | Controller REST e contratti JSON di richiesta/risposta (`AskRequest`, `AskResponse`). |
 | `config` | Costruzione del `ChatClient` e registrazione del `MessageTrackerAdvisor`. |
-| `constants` | Chiavi condivise nel contesto degli advisor e dei tool (`Constants`). |
+| `constants` | Chiavi condivise nel contesto degli advisor e dei tools (`Constants`). |
 | `model` | Record di dominio: risposta strutturata del modello, riferimenti alle fonti, contesto dei documenti recuperati, metadati di cronologia. |
 | `order` | Accesso JDBC read-only alla tabella `orders` (`OrderRepository`) e proiezione `OrderSummary`. |
 | `service` | Orchestrazione LLM (`AssistantService`), ingestion (`DocumentIngestionService`), cronologia (`ChatHistoryService`), sanitizzazione dell'output (`ReasoningSanitizer`). |
 | `tools` | Tool esposti al modello, tutti read-only: `OrderTools`, `DocumentTools`, `OtherTools`. |
 | `utils` | `DocumentManager`: rilevamento MIME/formato via Tika, parsing della risposta strutturata via `BeanOutputConverter`. |
+| `mcp` | Client MCP per l'integrazione con server esterni, registrazione automatica dei tools e tracking delle callback.
 
 ### Flusso di una richiesta `/api/ask`
 
@@ -63,6 +66,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 4. `MessageTrackerAdvisor` intercetta la richiesta e la risposta, assegnando un numero progressivo al messaggio e registrando timestamp, modello e fonti.
 5. `ReasoningSanitizer` estrae i blocchi `˜˜˜` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
 6. La risposta HTTP contiene `answer`, `thinking`, `sources`, `model` e `conversationId`.
+7. Gli eventuali tool provenienti dai server MCP sono registrati automaticamente e disponibili per l'invocazione dal modello.
 
 ### Scelte architetturali
 
@@ -70,6 +74,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 - **Retrieval su invocazione**: il contesto documentale non viene sempre precaricato nel prompt, ma iniettato solo quando il modello lo richiede, riducendo consumo di token e rumore semantico.
 - **Advisor come punto unico di osservabilità**: il tracciamento dei messaggi è centralizzato in un advisor Spring AI, indipendente dal servizio che orchestra la chat.
 - **Contesto in-process**: `RetrievedDocumentsContext` e la cronologia vivono in memoria e sono quindi limitati a una singola istanza dell'applicazione.
+- **Integrazione MCP**: i server MCP esterni vengono scoperti automaticamente e i loro tools registrati sul ChatClient, estendendo le capacità dell'assistente senza modifiche al codice Java.
 
 ---
 
@@ -80,7 +85,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 | Java | 21 |
 | Spring Boot | 4.0.0 |
 | Spring AI | 2.0.1 (`spring-ai-bom`) |
-| Spring AI Starter | `spring-ai-starter-model-ollama`, `spring-ai-starter-vector-store-pgvector` |
+| Spring AI Starter | `spring-ai-starter-model-ollama`, `spring-ai-starter-vector-store-pgvector`, `spring-ai-starter-mcp-client` |
 | Modello LLM ed embedding | Ollama (locale) |
 | Database | PostgreSQL 17 + estensione `pgvector` |
 | Estrazione testo | Apache Tika 4.1.0 (`tika-core`, `tika-parsers-standard-package`) |
@@ -104,7 +109,7 @@ ollama pull LiquidAI/lfm2.5-2.6b:latest
 ollama pull nomic-embed-text
 ```
 
-Il modello chat **deve supportare il tool calling**: senza questa feature il modello non può invocare i tool e l'assistente degrada a una risposta priva di dati verificati. Modelli alternativi testati: `llama3.2:latest` e `qwen3:4b`.
+Il modello chat **deve supportare il tool calling**: senza questa feature il modello non può invocare i tools e l'assistente degrada a una risposta priva di dati verificati. Modelli alternativi testati: `llama3.2:latest` e `qwen3:4b`.
 
 Per l'embedding è utilizzato `nomic-embed-text` (768 dimensioni). Se si cambia modello, verificare la dimensionalità e allineare `spring.ai.vectorstore.pgvector.dimensions`.
 
@@ -138,7 +143,7 @@ L'applicazione è disponibile su `http://localhost:8080`. Al primo avvio:
 
 - `schema.sql` abilita l'estensione `vector` e crea la tabella `orders` (con vincolo `CHECK` sugli stati ammessi);
 - `data.sql` carica i 6 ordini dimostrativi;
-- Spring AI inizializza lo schema del VectorStore (tabella `vector_store`, indice HNSW su similarità coseno).
+- Spring AI inizializza lo schema del VectorStore (tabella `vector_store`, indice HNSW su similarità coseno.
 
 Entrambi gli script SQL sono idempotenti (`CREATE TABLE IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
 
@@ -172,6 +177,26 @@ Parametri non sovrascrivibili da variabili d'ambiente ma regolabili nel file di 
 | `spring.servlet.multipart.max-request-size` | `20MB` | Dimensione massima della richiesta multipart |
 
 > **Attenzione alle dimensioni degli embedding:** se si cambia modello di embedding, aggiornare `spring.ai.vectorstore.pgvector.dimensions`. Se il volume PostgreSQL contiene già una tabella vettoriale creata con dimensioni diverse, la ricreazione del volume è necessaria e comporta la perdita dei dati di test.
+
+### Configurazione MCP client
+
+Le impostazioni MCP sono disponibili nella sezione `spring.ai.mcp.client` di `application.yml`:
+
+| Variabile | Proprietà | Default | Descrizione |
+|---|---|---|---|
+| `mcp.client.enabled` | `spring.ai.mcp.client.enabled` | `true` | Attiva/disattiva l'integrazione MCP client |
+| `mcp.client.name` | `spring.ai.mcp.client.name` | `ai-agent-qa-demo` | Nome dell'MCP client |
+| `mcp.client.version` | `spring.ai.mcp.client.version` | `1.0.0` | Versione dell'MCP client |
+| `mcp.client.type` | `spring.ai.mcp.client.type` | `SYNC` | Tipo di connessione (SYNC o ASYNC) |
+| `mcp.client.request-timeout` | `spring.ai.mcp.client.request-timeout` | `20s` | Timeout delle richieste verso i server MCP |
+
+Server MCP configurati:
+
+| Server | URL | Endpoint |
+|---|---|---|
+| date-time-tools | `https://date-time-tools.iabhishek.workers.dev` | `/mcp` |
+
+Ogni server MCP registra automaticamente i propri tools disponibili, che diventano immediatamente invocabili dal modello tramite il tool calling. La registrazione avviene all'avvio dell'applicazione e gli strumenti sono visibili nei log (`[MCP Connection: ...] [MCP Server: ...] [Tool: ...]`).
 
 ---
 
@@ -259,7 +284,7 @@ curl -X POST http://localhost:8080/api/new
 
 ### 3. `POST /api/documents` — ingestion documentale
 
-Endpoint `multipart/form-data`, campo obbligatorio `file`, dimensione massima 20 MB.
+Endpoints `multipart/form-data`, campo obbligatorio `file`, dimensione massima 20 MB.
 
 ```bash
 curl -X POST http://localhost:8080/api/documents \
@@ -338,17 +363,18 @@ docker compose exec postgres psql -U enterprise -d enterprise_ai \
 
 ---
 
-## Tool disponibili
+## Tools disponibili
 
-I tool sono metodi Java annotati con `@Tool`, registrati sul `ChatClient` e invocabili dal modello. Sono tutti **read-only** e utilizzano query SQL parametrizzate.
+I tools sono metodi Java annotati con `@Tool`, registrati sul `ChatClient` e invocabili dal modello. Sono tutti **read-only** e utilizzano query SQL parametrizzate. I tools provenienti dai server MCP sono registrati automaticamente all'avvio.
 
 | Tool | Componente | Parametri | Comportamento |
 |---|---|---|---|
 | `searchDocuments` | `DocumentTools` | `query` | Ricerca semantica sul VectorStore con `top-k` chunk; i chunk recuperati vengono accumulati nel contesto e riportati in `sources` |
-| `findOrdersByStatus` | `OrderTools` | `status` | Ricerca ordini per stato. Se lo stato è omesso per default viene impostato a  `IN_PROGRESS`; massimo 100 righe ordinate per data di consegna prevista |
+| `findOrdersByStatus` | `OrderTools` | `status` | Ricerca ordini per stato. Se lo stato è omesso per default viene impostato a `IN_PROGRESS`; massimo 100 righe ordinate per data di consegna prevista |
 | `findOrderById` | `OrderTools` | `orderId` | Dettaglio di un ordine tramite identificativo numerico positivo |
 | `sumOrderAmountsByStatus` | `OrderTools` | `status` | Somma degli importi degli ordini in uno stato (`COALESCE(SUM(amount), 0)`) |
 | `getCurrentDateTime` | `OtherTools` | — | Data e ora correnti |
+| *tool MCP* | *server MCP* | *vari* | *Tool esterni registrati automaticamente, visibili nei log di avvio* |
 
 Se un tool viene invocato con uno stato non riconosciuto non produce errore: la ricerca restituisce un elenco vuoto e la somma `0`, evitando di tradurre un valore arbitrario in una query non parametrizzata.
 
@@ -383,7 +409,7 @@ La ricerca viene eseguita **solo** quando il modello invoca `searchDocuments`:
 
 ### Generazione
 
-Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dati transazionali, divieto di inventare informazioni, distinzione tra dati di database e contenuti documentali, output dei record in tabelle Markdown e assenza di riferimenti a nomi di tool o dettagli implementativi.
+Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dati transazionali, divieto di inventare informazioni, distinzione tra dati di database e contenuti documentali, output dei record in tabelle Markdown e assenza di riferimenti a nomi di tools o dettagli implementativi.
 
 La risposta viene poi normalizzata da `ReasoningSanitizer`, che:
 
@@ -391,6 +417,68 @@ La risposta viene poi normalizzata da `ReasoningSanitizer`, che:
 - preserva integralmente tabelle Markdown e a capo nel campo `answer`;
 - recupera nel `answer` eventuali tabelle erroneamente prodotte nel `thinking`;
 - applica il fallback `Il modello non ha restituito una risposta.` quando la risposta è assente.
+
+---
+
+## Integrazione MCP client
+
+L'applicazione supporta l'integrazione con server esterni conformi al Model Context Protocol (MCP), consentendo l'estensione dinamica dei tools disponibili al modello linguistico.
+
+### Funzionalità
+
+- **Registrazione automatica**: all'avvio, il client MCP sincrono (`SYNC`) connette ai server specificati in `application.yml` e i tools disponibili.
+- **Tool calling esteso**: i tools dei server MCP diventano immediatamente invocabili dal modello, con gli stessi vincoli `read-only` degli strumenti locali.
+- **Logging centralizzato**: ogni invocazione e registrazione MCP è visibile nei log applicativi con il prefisso `[MCP Connection: ...] [MCP Server: ...] [Tool: ...]`.
+- **Supporto sync/async**: configurabile tramite `spring.ai.mcp.client.type` (default `SYNC`).
+
+### Configurazione
+
+L'integrazione MCP è configurata nella sezione `spring.ai.mcp.client` di `application.yml`. L'esempio corrente configura un client sync che si connette a `date-time-tools.iabhishek.workers.dev` sull'endpoint `/mcp`.
+
+Per aggiungere nuovi server MCP, aggiungere un blocco `streamable-http` nella sezione `mcp.client.connections`, specificando:
+- `url`: l'endpoint del server MCP remoto
+- `endpoint`: il percorso dell'endpoint MCP (default `/mcp`)
+
+### Esempio di configurazione MCP aggiuntiva
+
+```yaml
+spring:
+  ai:
+    mcp:
+      client:
+        enabled: true
+        connections:
+          custom-tool:
+            url: https://my-custom-mcp-server.example.com
+            endpoint: /mcp
+```
+
+### Flussi di lavoro
+
+1. All'avvio, `AiConfiguration` crea bean `McpSyncClient` per ogni server configurato.
+2. Viene chiamata `client.listTools()` per introspectare gli strumenti disponibili.
+3. I tools vengono registrati sul `ChatClient` insieme agli strumenti locali.
+4. Il modello può invocare questi tools usando la sintassi standard del tool calling.
+5. Le callback di logging sono registrate per tracciare l'uso dei tools MCP.
+
+---
+
+## Pipeline RAG
+
+*(Identico alla sezione precedente, incluso per completezza)*
+
+### Ingestion
+
+1. Rilevamento del formato tramite Tika...
+2. *(same as before)*
+
+### Retrieval
+
+*(same as before)*
+
+### Generazione
+
+*(same as before)*
 
 ---
 
@@ -455,7 +543,7 @@ La suite copre 11 test:
 └── src/
     ├── main/java/it/davideangelone/assistant/
     │   ├── api/                  # controller REST e DTO (AskRequest, AskResponse)
-    │   ├── config/               # ChatClient e MessageTrackerAdvisor
+    │   ├── config/               # ChatClient e MessageTrackerAdvisor, AiConfiguration (MCP)
     │   ├── constants/            # chiavi del contesto advisor/tool
     │   ├── model/                # record di dominio (risposta strutturata, fonti, cronologia)
     │   ├── order/                # OrderRepository (JDBC) e OrderSummary
@@ -463,8 +551,9 @@ La suite copre 11 test:
     │   │                         # ChatHistoryService, ReasoningSanitizer
     │   ├── tools/                # OrderTools, DocumentTools, OtherTools
     │   └── utils/                # DocumentManager (Tika, parsing risposta)
+    │   └── config/               # AiConfiguration: registrazione MCP client e tool callbacks
     ├── main/resources/
-    │   ├── application.yml       # configurazione Spring, AI, VectorStore, upload
+    │   ├── application.yml       # configurazione Spring, AI, VectorStore, upload, MCP
     │   ├── schema.sql            # estensione vector + tabella orders
     │   └── data.sql              # ordini dimostrativi
     └── test/java/it/davideangelone/assistant/
@@ -481,6 +570,7 @@ La suite copre 11 test:
 - **Retrieval agentico**: il contesto documentale viene iniettato solo su richiesta esplicita del modello, evitando di contaminare ogni risposta con chunk non pertinenti.
 - **Isolamento del ragionamento**: `reasoning` e `answer` sono campi distinti dello schema strutturato, con sanitizzazione difensiva a valle.
 - **Osservabilità centralizzata**: un singolo advisor registra richieste, risposte, modello e fonti, alimentando sia i log applicativi (`[CHAT-REQUEST]`, `[CHAT-ANSWER]`, `[TOOL]`) sia l'endpoint di cronologia.
+- **Integrazione MCP**: i server MCP esterni vengono scoperti automaticamente e i loro tools registrati sul ChatClient, estendendo le capacità dell'assistente senza modifiche al codice Java.
 - **Chunking basato su caratteri**: scelta pragmatica per il POC; per documenti complessi è opportuno adottare splitter token-based o strutturali (per esempio `MarkdownSectionSplitter`).
 - **Formati delegati a Tika**: il supporto effettivo dipende dai parser inclusi in `tika-parsers-standard-package`; i PDF scansionati, privi di livello testuale, non sono indicizzabili senza OCR.
 
@@ -495,4 +585,5 @@ La suite copre 11 test:
 - **Il modello decide quali fonti citare**: `sources` elenca i chunk recuperati, non garantisce che la risposta li referenzi correttamente.
 - **Nessuna valutazione automatica della qualità del RAG** (nessun dataset di benchmark né metriche di faithfulness).
 - **Osservabilità basilare**: solo log applicativi; mancano tracing distribuito, metriche e correlazione per richiesta.
-- **Codice didattico, non production-ready**: prima di un uso reale è necessario introdurre il layer di sicurezza, la persistenza dello stato conversazionale e il dimensionamento dell'infrastruttura (pool di connessioni, memoria, concorrenza dei tool).
+- **Codice didattico, non production-ready**: prima di un uso reale è necessario introdurre il layer di sicurezza, la persistenza dello stato conversazionale e il dimensionamento dell'infrastruttura (pool di connessioni, memoria, concorrenza dei tools).
+- **Dipendenza dalla disponibilità dei server MCP**: se i server MCP esterni sono offline, i tools registrati da tali server non sono disponibili, anche se l'applicazione continua a funzionare con gli strumenti locali.
