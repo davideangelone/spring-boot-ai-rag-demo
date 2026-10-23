@@ -17,7 +17,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 - [Installazione e avvio](#installazione-e-avvio)
 - [Configurazione](#configurazione)
 - [API REST](#api-rest)
-- [Tool disponibili](#tool-disponibili)
+- [Tools disponibili](#tools-disponibili)
 - [Integrazione MCP client](#integrazione-mcp-client)
 - [Pipeline RAG](#pipeline-rag)
 - [Persistenza dei dati](#persistenza-dei-dati)
