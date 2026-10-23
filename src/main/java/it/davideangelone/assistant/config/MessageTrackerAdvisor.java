@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-import it.davideangelone.assistant.constants.Constants;
 import it.davideangelone.assistant.model.MemoryLogMessageMetadata;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import it.davideangelone.assistant.model.SourceReference;
@@ -24,7 +23,6 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.chat.prompt.ChatOptions;
 
 import static it.davideangelone.assistant.constants.Constants.CONVERSATION_ID;
 import static it.davideangelone.assistant.constants.Constants.MESSAGE_COUNTER_TOOL_CONTEXT;
@@ -86,7 +84,7 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
 
         if (!answer.isBlank()) {
             List<SourceReference> sources = getSources(response);
-            String modelName = getModelName(response.context());
+            String modelName = response.chatResponse().getMetadata().getModel();
 
             logAnswer(conversationId, messageNumber, MessageType.ASSISTANT, answer, thinking, sources, modelName);
         }
@@ -131,11 +129,6 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
 
     private Integer getCurrentMessageNumber(Map<String, Object> context) {
         return (Integer) context.get(MESSAGE_COUNTER_TOOL_CONTEXT);
-    }
-
-    private String getModelName(Map<String, Object> context) {
-        ChatOptions chatOptions = (ChatOptions) context.get(Constants.CHAT_OPTIONS);
-        return chatOptions != null ? chatOptions.getModel() : null;
     }
 
     public List<MemoryLogMessageMetadata> getLogs(String conversationId) {

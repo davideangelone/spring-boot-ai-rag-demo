@@ -74,8 +74,7 @@ public class AssistantService {
                 .advisors(advisor -> advisor
                         .param(Constants.CONVERSATION_ID, conversationId)
                         .param(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext)
-                        .param(Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber)
-                        .param(Constants.CHAT_OPTIONS, chatModel.getOptions()))
+                        .param(Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber))
                 .toolContext(Map.of(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext,
                                     Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber))
                 .call()

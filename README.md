@@ -163,7 +163,7 @@ Parametri non sovrascrivibili da variabili d'ambiente ma regolabili nel file di 
 
 | Proprietà | Valore | Descrizione |
 |---|---|---|
-| `spring.ai.ollama.chat.options.temperature` | `0.1` | Temperatura di campionamento, bassa per favorire la deterministicozza |
+| `spring.ai.ollama.chat.options.temperature` | `0.1` | Temperatura di campionamento, bassa per favorire il determinismo |
 | `spring.ai.vectorstore.pgvector.dimensions` | `768` | Dimensionalità dei vettori (deve coincidere con il modello di embedding) |
 | `spring.ai.vectorstore.pgvector.index-type` | `HNSW` | Tipo di indice vettoriale |
 | `spring.ai.vectorstore.pgvector.distance-type` | `COSINE_DISTANCE` | Metrica di distanza |
