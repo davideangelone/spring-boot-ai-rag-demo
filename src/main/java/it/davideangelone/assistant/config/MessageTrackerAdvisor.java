@@ -8,8 +8,10 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import it.davideangelone.assistant.model.MemoryLogMessageMetadata;
+import it.davideangelone.assistant.model.RawResponse;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import it.davideangelone.assistant.model.SourceReference;
+import it.davideangelone.assistant.service.ReasoningSanitizer;
 import it.davideangelone.assistant.utils.DocumentManager;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -18,11 +20,10 @@ import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.BaseAdvisor;
-import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
 
 import static it.davideangelone.assistant.constants.Constants.CONVERSATION_ID;
 import static it.davideangelone.assistant.constants.Constants.MESSAGE_COUNTER_TOOL_CONTEXT;
@@ -67,26 +68,18 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
     public @NonNull ChatClientResponse after(@NonNull ChatClientResponse response, @NonNull AdvisorChain chain) {
         String conversationId = getConversationId(response.context());
         Integer messageNumber = getCurrentMessageNumber(response.context());
+        RawResponse rawResponse = documentManager.getRawResponse(response.chatResponse());
 
-        String answer = Optional.ofNullable(response.chatResponse())
-                .map(ChatResponse::getResult)
-                .map(Generation::getOutput)
-                .map(AbstractMessage::getText)
-                .orElse("");
-
-        String thinking = Optional.ofNullable(response.chatResponse())
-                .map(ChatResponse::getResult)
-                .map(Generation::getOutput)
-                .map(AbstractMessage::getMetadata)
-                .map(metadata -> metadata.get("thinking"))
-                .map(Object::toString)
-                .orElse("");
-
-        if (!answer.isBlank()) {
+        if (!StringUtils.isBlank(rawResponse.rawResponse())) {
             List<SourceReference> sources = getSources(response);
-            String modelName = response.chatResponse().getMetadata().getModel();
+            String modelName = Optional.ofNullable(response.chatResponse())
+                    .map(ChatResponse::getMetadata)
+                    .map(ChatResponseMetadata::getModel)
+                    .orElse(null);
 
-            logAnswer(conversationId, messageNumber, MessageType.ASSISTANT, answer, thinking, sources, modelName);
+            ReasoningSanitizer.SanitizedOutput sanitized = ReasoningSanitizer.sanitize(rawResponse.rawThinking(), rawResponse.rawResponse());
+
+            logAnswer(conversationId, messageNumber, MessageType.ASSISTANT, sanitized.answer(), sanitized.reasoning(), sources, modelName);
         }
 
         return response;

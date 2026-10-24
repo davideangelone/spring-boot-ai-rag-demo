@@ -3,21 +3,19 @@ package it.davideangelone.assistant.service;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import it.davideangelone.assistant.api.AskResponse;
 import it.davideangelone.assistant.constants.Constants;
+import it.davideangelone.assistant.model.RawResponse;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import it.davideangelone.assistant.model.SourceReference;
 import it.davideangelone.assistant.utils.DocumentManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
@@ -75,27 +73,15 @@ public class AssistantService {
                         .param(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext)
                         .param(Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber))
                 .toolContext(Map.of(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, retrievedContext,
-                                    Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber))
+                        Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber))
                 .call()
                 .chatResponse();
 
-        String rawResponse = Optional.ofNullable(response)
-                .map(ChatResponse::getResult)
-                .map(Generation::getOutput)
-                .map(AbstractMessage::getText)
-                .orElse(null);
-        String rawThinking = Optional.ofNullable(response)
-                .map(ChatResponse::getResult)
-                .map(Generation::getOutput)
-                .map(AbstractMessage::getMetadata)
-                .map(metadata -> metadata.get("thinking"))
-                .map(Object::toString)
-                .orElse(null);
+        RawResponse rawResponse = documentManager.getRawResponse(response);
+        ReasoningSanitizer.SanitizedOutput sanitized = ReasoningSanitizer.sanitize(rawResponse.rawThinking(), rawResponse.rawResponse());
 
         List<Document> retrievedDocuments = retrievedContext.getDocuments();
         List<SourceReference> sources = documentManager.getDocumentsSourceReferences(retrievedDocuments);
-
-        ReasoningSanitizer.SanitizedOutput sanitized = ReasoningSanitizer.sanitize(rawThinking, rawResponse);
 
         return new AskResponse(
                 sanitized.answer(),

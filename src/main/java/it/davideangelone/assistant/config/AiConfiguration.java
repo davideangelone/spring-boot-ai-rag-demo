@@ -33,17 +33,21 @@ public class AiConfiguration {
             MessageTrackerAdvisor messageTrackerAdvisor) {
 
         for (McpSyncClient client : mcpSyncClients) {
-            String connectionName = client.getClientInfo().title();
-            String serverName = client.getServerInfo().name();
+            try {
+                String connectionName = client.getClientInfo().title();
+                String serverName = client.getServerInfo().name();
 
-            client.listTools().tools().forEach(tool ->
-                    log.info("[MCP Connection: {}] [MCP Server: {}] [Tool: {}] Descrizione: {}",
-                            connectionName,
-                            serverName,
-                            tool.name(),
-                            StringUtils.abbreviate(StringUtils.normalizeSpace(tool.description()), 200)
-                    )
-            );
+                client.listTools().tools().forEach(tool ->
+                        log.info("[MCP Connection: {}] [MCP Server: {}] [Tool: {}] Descrizione: {}",
+                                connectionName,
+                                serverName,
+                                tool.name(),
+                                StringUtils.abbreviate(StringUtils.normalizeSpace(tool.description()), 200)
+                        )
+                );
+            } catch (Exception e) {
+                log.warn("Errore connessione MCP client {}: {}", client.getClientInfo().title(), e.getMessage());
+            }
         }
 
         List<LoggingToolCallback> loggingToolCallbackList = new ArrayList<>();
