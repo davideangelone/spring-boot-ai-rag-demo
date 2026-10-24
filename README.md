@@ -1,6 +1,8 @@
-# Spring AI Assistant POC
+# Spring AI RAG Assistant POC
 
-POC in Java 21 / Spring Boot 4 / Spring AI 2 che realizza un assistente aziendale conversazionale: un modulo **RAG** agentico per interrogare la documentazione interna e un layer di **tool calling** read-only per recuperare dati transazionali da PostgreSQL.
+POC in Java 21 / Spring Boot 4 / Spring AI 2 che realizza un assistente aziendale conversazionale basato su **RAG (Retrieval-Augmented Generation)**, con capacità agentiche e tool calling.
+
+Il modulo RAG consente di interrogare la documentazione aziendale, recuperando i documenti pertinenti e restituendo i relativi riferimenti. Un layer di tool calling read-only permette inoltre di interrogare dati transazionali su PostgreSQL e di invocare servizi esposti da server *MCP (Model Context Protocol)* configurati nell'applicazione.
 
 L'assistente risponde in italiano, separa il ragionamento interno dalla risposta destinata all'utente e restituisce i riferimenti ai documenti effettivamente recuperati.
 
