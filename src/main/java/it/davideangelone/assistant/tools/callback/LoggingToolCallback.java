@@ -13,6 +13,7 @@ import java.util.function.Supplier;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import it.davideangelone.assistant.model.ToolOutputTrace;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.ai.chat.model.ToolContext;
@@ -21,6 +22,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 
 import static it.davideangelone.assistant.constants.Constants.MESSAGE_COUNTER_TOOL_CONTEXT;
+import static it.davideangelone.assistant.constants.Constants.TOOL_OUTPUT_TRACE_TOOL_CONTEXT;
 
 @Slf4j
 public class LoggingToolCallback implements ToolCallback {
@@ -53,7 +55,7 @@ public class LoggingToolCallback implements ToolCallback {
     @Override
     public @NonNull String call(@NonNull String toolInput) {
         String normalizedInput = normalizeInput(toolInput);
-        return execute(normalizedInput, () -> delegate.call(normalizedInput), null);
+        return execute(normalizedInput, () -> delegate.call(normalizedInput), null, null);
     }
 
     @Override
@@ -63,7 +65,8 @@ public class LoggingToolCallback implements ToolCallback {
                 .orElse(null);
         Integer messageNumber = getCurrentMessageNumber(context);
         String normalizedInput = normalizeInput(toolInput);
-        return execute(normalizedInput, () -> delegate.call(normalizedInput, toolContext), messageNumber);
+        ToolOutputTrace trace = getToolOutputTrace(context);
+        return execute(normalizedInput, () -> delegate.call(normalizedInput, toolContext), messageNumber, trace);
     }
 
     private String normalizeInput(String toolInput) {
@@ -122,7 +125,7 @@ public class LoggingToolCallback implements ToolCallback {
         return raw;
     }
 
-    private @NonNull String execute(@NonNull String toolInput, Supplier<String> invocation, Integer messageNumber) {
+    private @NonNull String execute(@NonNull String toolInput, Supplier<String> invocation, Integer messageNumber, ToolOutputTrace trace) {
         String name = delegate.getToolDefinition().name();
         String msgNumber = (null == messageNumber) ? "N/A" : messageNumber.toString();
         String logToolInfo = getLogToolInfo(name, msgNumber);
@@ -132,6 +135,9 @@ public class LoggingToolCallback implements ToolCallback {
         try {
             String result = invocation.get();
             log.info("{} - OUTPUT ({} ms): {}", logToolInfo, getElapsedNanos(start), result);
+            if (trace != null) {
+                trace.record(name, toolInput, result);
+            }
             return result;
         } catch (RuntimeException e) {
             log.error("{} - FAILED ({} ms), input: {}", logToolInfo, getElapsedNanos(start), toolInput, e);
@@ -148,6 +154,13 @@ public class LoggingToolCallback implements ToolCallback {
 
     private long getElapsedNanos(long start) {
         return (System.nanoTime() - start) / 1_000_000;
+    }
+
+    private ToolOutputTrace getToolOutputTrace(Map<String, Object> context) {
+        if (null == context) {
+            return null;
+        }
+        return context.get(TOOL_OUTPUT_TRACE_TOOL_CONTEXT) instanceof ToolOutputTrace trace ? trace : null;
     }
 
     private Integer getCurrentMessageNumber(Map<String, Object> context) {

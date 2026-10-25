@@ -110,9 +110,9 @@ flowchart TD
 | Agente | Responsabilità | Input → Output | Tool |
 |---|---|---|---|
 | `QueryPlannerAgent` | Scompone la domanda, identifica i dati necessari e le fonti più adatte (database ordini, documenti, data/ora). Non risponde alla domanda. | domanda → `QueryPlan` (`intent`, `informationNeeds`, `suggestedSources`, `executionGuidance`) | No |
-| `ToolExecutionAgent` | Decide in autonomia, tramite function calling, quali tool invocare e con quali parametri (`searchDocuments`, tool ordini, tool data/ora locali e MCP). In caso di retry riceve il feedback del grader e si concentra sulle lacune indicate. | domanda + piano + feedback opzionale → `ToolExecutionResult` | Sì (locali + MCP) |
-| `RelevanceGraderAgent` | Valuta in modo critico se i dati recuperati sono pertinenti e sufficienti a rispondere senza ipotizzare nulla; se mancano elementi, indica cosa cercare. | domanda + piano + risultato dei tool → `EvaluationResult` (`isRelevant`, `isSufficient`, `confidenceScore` HIGH/MEDIUM/LOW, `feedback`) | No |
-| `ResponseSynthesizerAgent` | Redige la risposta finale in italiano usando solo i dati recuperati: tabelle Markdown per i record di database, distinzione tra dati transazionali e documenti, nessuna allucinazione né riferimenti a nomi di tool. Abilita il *thinking* del modello per popolare `reasoning`. | domanda + risultato dei tool + valutazione → `AskResponse` | No |
+| `ToolExecutionAgent` | Decide in autonomia, tramite function calling, quali tool invocare e con quali parametri (`searchDocuments`, tool ordini, tool data/ora locali e MCP). In caso di retry riceve il feedback del grader e si concentra sulle lacune indicate. | domanda + piano + feedback opzionale → `ToolExecutionResult` (`summary`: riepilogo dell'LLM; `rawOutput`: output reale dei tool) | Sì (locali + MCP) |
+| `RelevanceGraderAgent` | Valuta in modo critico se i dati recuperati sono pertinenti e sufficienti a rispondere senza ipotizzare nulla; se mancano elementi, indica cosa cercare. Basa il giudizio sull'**output grezzo dei tool** e segnala eventuali discrepanze del riepilogo dell'executor (record omessi, troncati o alterati). | domanda + piano + risultato dei tool → `EvaluationResult` (`isRelevant`, `isSufficient`, `confidenceScore` HIGH/MEDIUM/LOW, `feedback`) | No |
+| `ResponseSynthesizerAgent` | Redige la risposta finale in italiano usando solo i dati recuperati (l'**output grezzo dei tool** è la fonte di verità, il riepilogo dell'executor è solo contesto): tabelle Markdown per i record di database, distinzione tra dati transazionali e documenti, nessuna allucinazione né riferimenti a nomi di tool. Abilita il *thinking* del modello per popolare `reasoning`. | domanda + risultato dei tool + valutazione → `AskResponse` | No |
 | `AgenticRagOrchestrator` | Coordina il workflow, gestisce il ciclo di retry (massimo 2 iterazioni), registra messaggio utente e risposta nella cronologia e restituisce l'`AskResponse`. | domanda + `conversationId` → `AskResponse` | — |
 
 ### Ciclo di retroazione correttiva
@@ -123,6 +123,16 @@ flowchart TD
 4. Alla seconda iterazione il ciclo termina comunque: se i dati risultano ancora parziali, il synthesizer riceve lo stato `Parziale` con il relativo feedback e dichiara esplicitamente i limiti della risposta.
 
 Il `RetrievedDocumentsContext` è condiviso tra le iterazioni: i chunk recuperati in tutti i tentativi confluiscono nel campo `sources` della risposta.
+
+### Output grezzo dei tool
+
+L'executor è un LLM che, dopo aver invocato i tool, produce un riepilogo testuale; quel riepilogo può troncare tabelle o parafrasare male le procedure. Per questo grader e synthesizer non si basano solo su di esso:
+
+1. A ogni esecuzione l'executor crea un `ToolOutputTrace` e lo passa ai tool nel `ToolContext`.
+2. `LoggingToolCallback` registra nella traccia nome, input e **output reale** di ogni tool invocato (record del database, chunk documentali, risposte MCP).
+3. La traccia, resa in forma testuale, finisce in `ToolExecutionResult.rawOutput`; grader e synthesizer la ricevono come fonte di verità accanto al riepilogo (`summary`).
+
+Per non saturare il contesto dei modelli locali la resa della traccia ha un budget di 16.000 caratteri ripartito tra le invocazioni; un output troncato è segnalato nel testo con il marker `OUTPUT TROCATO`, così grader e synthesizer sanno che i dati possono essere incompleti. In caso di retry la traccia riguarda solo l'ultima iterazione.
 
 ### Robustezza
 
@@ -572,18 +582,20 @@ Gestita automaticamente da Spring AI (schema `public`, tabella `vector_store`), 
 mvn test
 ```
 
-La suite copre 27 test:
+La suite copre 35 test:
 
 - **`DocumentIngestionServiceTest`** — comportamento dello splitting: chunk multipli con overlap, nessun chunk vuoto, rispetto della dimensione massima, documento breve in un unico chunk.
 - **`ReasoningSanitizerTest`** — separazione reasoning/answer, estrazione dei tag `<think>` / `<thought>` (chiusi, non chiusi, case-insensitive, multipli), gestione di input nulli o vuoti, preservazione delle tabelle Markdown e recupero delle tabelle dal campo reasoning.
 - **Test dell'orchestrazione agentica** (package `agent`):
   - `QueryPlannerAgentTest` — generazione del piano e fallback a un piano generico;
   - `ToolExecutionAgentTest` — invocazione del `ChatClient` con il `ToolContext` e gestione del feedback di retry;
+  - `ToolExecutionResultTest` — normalizzazione dei campi e separazione tra `summary` e `rawOutput`;
   - `RelevanceGraderAgentTest` — restituzione della valutazione e fallback in caso di errore;
   - `ResponseSynthesizerAgentTest` — formattazione della risposta finale;
   - `AgenticRagOrchestratorTest` — flusso orchestrato con successo al primo tentativo e con retry per dati insufficienti;
   - `AgentModelSerializationTest` e `AgentBeansInstantiationTest` — serializzazione dei record di stato e istanziazione dei bean degli agenti.
-- **`MessageTrackerAdvisorTest`** e **`LoggingToolCallbackTest`** — tracciamento dei messaggi e logging delle invocazioni dei tool.
+- **`ToolOutputTraceTest`** — resa della traccia dei tool, troncamento con marker esplicito, ripartizione del budget tra le invocazioni.
+- **`MessageTrackerAdvisorTest`** e **`LoggingToolCallbackTest`** — tracciamento dei messaggi, logging delle invocazioni dei tool e registrazione dell'output grezzo nella traccia.
 
 ---
 
@@ -609,7 +621,7 @@ La suite copre 27 test:
     │   ├── config/               # AiConfiguration (ChatClient con tool, MCP client e tool callbacks),
     │   │                         # MessageTrackerAdvisor
     │   ├── constants/            # chiavi del contesto advisor/tool
-    │   ├── model/                # record di dominio (fonti, cronologia, contesto documenti)
+    │   ├── model/                # record di dominio (fonti, cronologia, contesto documenti, ToolOutputTrace)
     │   ├── order/                # OrderRepository (JDBC) e OrderSummary
     │   ├── service/              # AssistantService, DocumentIngestionService,
     │   │                         # ChatHistoryService, ReasoningSanitizer
@@ -622,6 +634,7 @@ La suite copre 27 test:
     └── test/java/it/davideangelone/assistant/
         ├── agent/                # test di agenti, orchestratore e modelli di stato
         ├── config/               # MessageTrackerAdvisorTest
+        ├── model/                # ToolOutputTraceTest
         ├── service/              # DocumentIngestionServiceTest, ReasoningSanitizerTest
         └── tools/                # LoggingToolCallbackTest
 ```

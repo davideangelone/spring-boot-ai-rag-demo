@@ -5,6 +5,7 @@ import it.davideangelone.assistant.agent.model.QueryPlan;
 import it.davideangelone.assistant.agent.model.ToolExecutionResult;
 import it.davideangelone.assistant.constants.Constants;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
+import it.davideangelone.assistant.model.ToolOutputTrace;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.ai.chat.client.ChatClient;
@@ -42,12 +43,15 @@ public class ToolExecutionAgent {
 
         StringBuilder userMessage = createUserMessage(question, plan, retryFeedback);
         Prompt prompt = new Prompt(userMessage.toString());
+        // Raccoglie l'output grezzo di ogni tool invocato in questa esecuzione (popolato da LoggingToolCallback)
+        ToolOutputTrace toolOutputTrace = new ToolOutputTrace();
 
         ChatResponse response = toolChatClient.prompt(prompt)
                 .system(SYSTEM_PROMPT)
                 .toolContext(Map.of(
                         Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, context,
-                        Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber
+                        Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber,
+                        Constants.TOOL_OUTPUT_TRACE_TOOL_CONTEXT, toolOutputTrace
                 ))
                 .call()
                 .chatResponse();
@@ -57,12 +61,14 @@ public class ToolExecutionAgent {
             outputText = response.getResult().getOutput().getText();
         }
 
-        log.info("[TOOL-AGENT] - Msg {} - Esecuzione completata. Documenti nel contesto: {}", messageNumber, context.getDocuments().size());
+        log.info("[TOOL-AGENT] - Msg {} - Esecuzione completata. Tool invocati: {}, documenti nel contesto: {}",
+                messageNumber, toolOutputTrace.getEntries().size(), context.getDocuments().size());
         context.getDocuments().forEach(
                 doc -> log.info("[TOOL-AGENT] - Msg {} - Documento: {}", messageNumber, doc.getMetadata().get("source"))
         );
 
-        return new ToolExecutionResult(outputText, outputText, context.getDocuments());
+        // summary: riepilogo testuale dell'LLM; rawOutput: output reale dei tool (fonte di verità per grader e synthesizer)
+        return new ToolExecutionResult(outputText, toolOutputTrace.render(), context.getDocuments());
     }
 
     private @NonNull StringBuilder createUserMessage(String question, QueryPlan plan, String retryFeedback) {

@@ -15,6 +15,10 @@ public class RelevanceGraderAgent {
     private static final String SYSTEM_PROMPT = """
             Sei un controllore di qualità ed accuratezza dei dati aziendali (Grader/Critic).
             Il tuo compito è confrontare la domanda dell'utente e il piano informativo con i risultati ottenuti dall'esecuzione dei tool.
+            Ricevi due fonti: l'OUTPUT GREZZO DEI TOOL (dati reali restituiti dagli strumenti, fonte di verità) e il RIEPILOGO dell'agente esecutore (testo generato da un LLM, che può essere incompleto, troncato o impreciso).
+            Basa la valutazione sull'output grezzo. Se il riepilogo omette, tronca o altera record o informazioni presenti nell'output grezzo, segnalalo nel feedback.
+            Se l'output grezzo riporta il marker 'OUTPUT TROCATO', considera che i dati possono essere incompleti.
+            Se nessun tool è stato invocato, valuta solo il riepilogo.
             Valuta con rigore:
             1. isRelevant (boolean): Le informazioni raccolte sono pertinenti alla domanda posta?
             2. isSufficient (boolean): I dati sono sufficienti e completi per redigere una risposta finale affidabile e precisa senza dover ipotizzare nulla?
@@ -44,12 +48,16 @@ public class RelevanceGraderAgent {
                 - Intento: %s
                 - Dati necessari: %s
                 
-                DATI RECUPERATI DAI TOOL / CONTESTO:
+                OUTPUT GREZZO DEI TOOL (fonte di verità):
+                %s
+
+                RIEPILOGO DELL'AGENTE ESECUTORE (può essere impreciso):
                 %s
                 """.formatted(
                 question,
                 plan.intent(),
                 plan.informationNeeds(),
+                executionResult.rawOutput().isBlank() ? "(nessun tool invocato)" : executionResult.rawOutput(),
                 executionResult.summary()
         );
 
@@ -68,7 +76,7 @@ public class RelevanceGraderAgent {
             log.warn("[GRADER-AGENT] - Msg {} - Errore durante grading strutturato: {}", messageNumber, e.getMessage());
         }
 
-        boolean hasData = executionResult.summary() != null && !executionResult.summary().isBlank();
+        boolean hasData = !executionResult.rawOutput().isBlank() || !executionResult.summary().isBlank();
         return new EvaluationResult(hasData, hasData, hasData ? "MEDIUM" : "LOW", hasData ? "OK" : "Nessun dato recuperato");
     }
 }

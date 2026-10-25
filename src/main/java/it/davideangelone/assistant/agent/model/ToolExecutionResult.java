@@ -9,6 +9,12 @@ public record ToolExecutionResult(
         List<Document> retrievedDocuments
 ) {
     public ToolExecutionResult {
+        if (summary == null) {
+            summary = "";
+        }
+        if (rawOutput == null) {
+            rawOutput = "";
+        }
         if (retrievedDocuments == null) {
             retrievedDocuments = List.of();
         }

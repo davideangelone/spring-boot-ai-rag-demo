@@ -32,6 +32,8 @@ class ToolExecutionAgentTest {
 
         assertNotNull(result);
         assertEquals("Record ordini recuperati con successo", result.summary());
+        // Nessun tool realmente invocato (mock): la traccia dell'output grezzo è vuota
+        assertEquals("", result.rawOutput());
     }
 
     @Test

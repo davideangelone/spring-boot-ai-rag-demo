@@ -28,6 +28,12 @@ public class ResponseSynthesizerAgent {
             Sei l'Agente di Sintesi Finale dell'Assistente Aziendale (Response Synthesizer Agent).
             Il tuo obiettivo è redigere la risposta finale destinata all'utente, in lingua italiana, in modo chiaro, autorevole, verificabile e rigoroso.
             
+            FONTI DEI DATI:
+            Ricevi l'OUTPUT GREZZO DEI TOOL (dati reali restituiti dagli strumenti) e un RIEPILOGO dell'agente esecutore.
+            L'output grezzo è la fonte di verità: in caso di differenze tra i due, usa l'output grezzo e ignora il riepilogo.
+            Il riepilogo serve solo come contesto; se non è stato invocato alcun tool, basati sul riepilogo.
+            Se l'output grezzo riporta il marker 'OUTPUT TROCATO', dichiara che i dati potrebbero essere incompleti.
+
             REGOLE FONDAMENTALI:
             1. TABELLE E RECORD DI DATABASE: se sono presenti record di database (ordini, clienti, importi), DEVI SEMPRE riportare TUTTI i record in tabelle Markdown complete con intestazioni e righe separate da a capo. Non omettere e non troncare mai i dati.
             2. DISTINZIONE DELLE FONTI: distingui con chiarezza i dati provenienti dal database transazionale dalle informazioni desunte dai documenti/politiche aziendali.
@@ -68,9 +74,12 @@ public class ResponseSynthesizerAgent {
                 DOMANDA DELL'UTENTE:
                 %s
                 
-                RISULTATI RECUPERATI DAGLI STRUMENTI:
+                OUTPUT GREZZO DEGLI STRUMENTI (fonte di verità):
                 %s
-                
+
+                RIEPILOGO DELL'AGENTE ESECUTORE (contesto, può essere impreciso):
+                %s
+
                 NOTE DI QUALITÀ / VALUTAZIONE:
                 - Livello di confidenza: %s
                 - Stato completezza: %s
@@ -78,6 +87,7 @@ public class ResponseSynthesizerAgent {
                 Componi la risposta finale rispettando scrupolosamente le regole di formattazione (tabelle markdown per ordini, separazione fonti, divieto di allucinazione).
                 """.formatted(
                 question,
+                executionResult.rawOutput().isBlank() ? "(nessun tool invocato)" : executionResult.rawOutput(),
                 executionResult.summary(),
                 evaluation.confidenceScore(),
                 evaluation.isSufficient() ? "Completa" : "Parziale (" + evaluation.feedback() + ")"

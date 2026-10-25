@@ -1,8 +1,13 @@
 package it.davideangelone.assistant.tools.callback;
 
+import java.util.Map;
+
+import it.davideangelone.assistant.constants.Constants;
+import it.davideangelone.assistant.model.ToolOutputTrace;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
@@ -53,5 +58,47 @@ class LoggingToolCallbackTest {
         assertThat(captor.getValue()).contains("\"dateTime\":\"2026-09-20 12:00:00 am\"");
         assertThat(captor.getValue()).contains("\"fromZone\":\"Europe/Rome\"");
         assertThat(captor.getValue()).contains("\"toZone\":\"UTC\"");
+    }
+
+    @Test
+    @DisplayName("Dovrebbe registrare l'output grezzo del tool nella traccia presente nel ToolContext")
+    void shouldRecordRawOutputInToolOutputTrace() {
+        ToolCallback mockDelegate = mock(ToolCallback.class);
+        ToolDefinition toolDef = ToolDefinition.builder()
+                .name("findOrdersByStatus")
+                .description("Find orders")
+                .inputSchema("{}")
+                .build();
+        when(mockDelegate.getToolDefinition()).thenReturn(toolDef);
+        when(mockDelegate.call(anyString(), any(ToolContext.class))).thenReturn("[{\"id\":1001}]");
+
+        ToolOutputTrace trace = new ToolOutputTrace();
+        ToolContext toolContext = new ToolContext(Map.of(Constants.TOOL_OUTPUT_TRACE_TOOL_CONTEXT, trace));
+
+        LoggingToolCallback callback = new LoggingToolCallback(mockDelegate);
+        String result = callback.call("{\"status\":\"IN_PROGRESS\"}", toolContext);
+
+        assertThat(result).isEqualTo("[{\"id\":1001}]");
+        assertThat(trace.getEntries()).hasSize(1);
+        assertThat(trace.getEntries().getFirst().toolName()).isEqualTo("findOrdersByStatus");
+        assertThat(trace.getEntries().getFirst().input()).isEqualTo("{\"status\":\"IN_PROGRESS\"}");
+        assertThat(trace.getEntries().getFirst().output()).isEqualTo("[{\"id\":1001}]");
+    }
+
+    @Test
+    @DisplayName("Non dovrebbe fallire se il ToolContext non contiene una traccia")
+    void shouldWorkWithoutToolOutputTrace() {
+        ToolCallback mockDelegate = mock(ToolCallback.class);
+        ToolDefinition toolDef = ToolDefinition.builder()
+                .name("getCurrentDateTime")
+                .description("Current date time")
+                .inputSchema("{}")
+                .build();
+        when(mockDelegate.getToolDefinition()).thenReturn(toolDef);
+        when(mockDelegate.call(anyString(), any(ToolContext.class))).thenReturn("ok");
+
+        LoggingToolCallback callback = new LoggingToolCallback(mockDelegate);
+
+        assertThat(callback.call("{}", new ToolContext(Map.of()))).isEqualTo("ok");
     }
 }
