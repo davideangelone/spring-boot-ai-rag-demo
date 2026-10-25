@@ -1,4 +1,5 @@
 # Spring AI RAG Assistant POC con orchestrazione agentica
+*(versione singolo agente presente sul branch **single-agent-rag**)*
 
 POC in Java 21 / Spring Boot 4 / Spring AI 2 che realizza un assistente aziendale conversazionale basato su **RAG (Retrieval-Augmented Generation)** con **orchestrazione agentica multi-agente** e tool calling.
 
