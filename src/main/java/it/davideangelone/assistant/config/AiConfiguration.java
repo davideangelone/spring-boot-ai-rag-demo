@@ -25,8 +25,9 @@ public class AiConfiguration {
         return new MessageTrackerAdvisor(documentManager);
     }
 
-    @Bean
-    public ChatClient chatClient(
+    @Bean(name = {"toolChatClient", "chatClient"})
+    @org.springframework.context.annotation.Primary
+    public ChatClient toolChatClient(
             ChatClient.Builder builder,
             AiTool[] localAiTools,
             List<McpSyncClient> mcpSyncClients,
