@@ -23,6 +23,7 @@ public class QueryPlannerAgent {
 
     private final ChatClient chatClient;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public QueryPlannerAgent(ChatClient.Builder chatClientBuilder) {
         this.chatClient = chatClientBuilder
                 .defaultSystem(SYSTEM_PROMPT)

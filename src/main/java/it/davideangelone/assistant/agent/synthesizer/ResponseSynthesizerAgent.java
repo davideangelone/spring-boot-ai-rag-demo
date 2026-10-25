@@ -38,6 +38,7 @@ public class ResponseSynthesizerAgent {
     private final ChatModel chatModel;
     private final DocumentManager documentManager;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ResponseSynthesizerAgent(ChatClient.Builder chatClientBuilder,
                                    ChatModel chatModel,
                                    DocumentManager documentManager) {

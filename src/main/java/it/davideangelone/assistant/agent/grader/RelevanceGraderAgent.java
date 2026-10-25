@@ -23,6 +23,7 @@ public class RelevanceGraderAgent {
 
     private final ChatClient chatClient;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public RelevanceGraderAgent(ChatClient.Builder chatClientBuilder) {
         this.chatClient = chatClientBuilder
                 .defaultSystem(SYSTEM_PROMPT)

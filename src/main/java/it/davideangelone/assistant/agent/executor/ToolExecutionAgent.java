@@ -32,6 +32,7 @@ public class ToolExecutionAgent {
 
     private final ChatClient toolChatClient;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ToolExecutionAgent(@Qualifier("toolChatClient") ChatClient toolChatClient) {
         this.toolChatClient = toolChatClient;
     }
