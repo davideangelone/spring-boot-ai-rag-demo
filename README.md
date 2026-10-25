@@ -1,8 +1,10 @@
-# Spring AI RAG Assistant POC
+# Spring AI RAG Assistant POC con orchestrazione agentica
 
-POC in Java 21 / Spring Boot 4 / Spring AI 2 che realizza un assistente aziendale conversazionale basato su **RAG (Retrieval-Augmented Generation)**, con capacità agentiche e tool calling.
+POC in Java 21 / Spring Boot 4 / Spring AI 2 che realizza un assistente aziendale conversazionale basato su **RAG (Retrieval-Augmented Generation)** con **orchestrazione agentica multi-agente** e tool calling.
 
-Il modulo RAG consente di interrogare la documentazione aziendale, recuperando i documenti pertinenti e restituendo i relativi riferimenti. Un layer di tool calling read-only permette inoltre di interrogare dati transazionali su PostgreSQL e di invocare servizi esposti da server *MCP (Model Context Protocol)* configurati nell'applicazione.
+> **Questa versione del RAG usa un'orchestrazione agentica** : invece di una singola chiamata monolitica al modello, la richiesta attraversa una pipeline coordinata da un orchestratore (`AgenticRagOrchestrator`) in cui agenti specializzati si occupano di **pianificazione**, **esecuzione dei tool**, **valutazione critica** dei dati recuperati e **sintesi** della risposta, con un ciclo di retroazione correttiva quando i dati risultano insufficienti. Vedi [Orchestrazione agentica](#orchestrazione-agentica).
+
+Il modulo RAG consente di interrogare la documentazione aziendale, recuperando i documenti pertinenti e restituendo i relativi riferimenti. Un layer di tool calling read-only permette inoltre di interrogare dati transazionali su PostgreSQL e di invocare servizi esposti da server *MCP (Model Context Protocol)* configurati nell'applicazione. Tutti gli strumenti sono utilizzati dall'agente esecutore, che decide in autonomia quali invocare.
 
 L'assistente risponde in italiano, separa il ragionamento interno dalla risposta destinata all'utente e restituisce i riferimenti ai documenti effettivamente recuperati.
 
@@ -14,6 +16,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 
 - [Funzionalità](#funzionalità)
 - [Architettura](#architettura)
+- [Orchestrazione agentica](#orchestrazione-agentica)
 - [Stack tecnologico](#stack-tecnologico)
 - [Prerequisiti](#prerequisiti)
 - [Installazione e avvio](#installazione-e-avvio)
@@ -32,7 +35,9 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 ## Funzionalità
 
 - **API REST** per domande in linguaggio naturale.
-- **RAG agentico**: il modello decide autonomamente quando interrogare l'indice documentale, invocando il tool `searchDocuments`; la ricerca semantica avviene solo se necessaria.
+- **RAG con orchestrazione agentica**: un orchestratore coordina quattro agenti specializzati (*planner*, *executor*, *grader*, *synthesizer*), ciascuno con un prompt e una responsabilità isolata.
+- **Ciclo di retroazione correttiva**: il `RelevanceGraderAgent` valuta pertinenza e sufficienza dei dati recuperati; se sono insufficienti, l'esecuzione viene ripetuta (massimo 2 iterazioni) passando all'executor il feedback sulle informazioni mancanti.
+- **Retrieval su decisione del modello**: l'agente esecutore decide autonomamente quando interrogare l'indice documentale, invocando il tool `searchDocuments`; la ricerca semantica avviene solo se necessaria.
 - **Ingestion documentale** via multipart con Apache Tika: estrazione del testo, chunking con overlap e metadati `source`, `chunk`, `documentType`, `contentType`.
 - **Indicizzazione unificata**: PDF e TXT (e gli altri formati supportati da Tika) finiscono nello stesso VectorStore `pgvector`; la ricerca è globale e non applica filtri sul formato del documento.
 - **Tool calling read-only** verso PostgreSQL: ricerca ordini per stato, dettaglio ordine per ID, somma importi per stato, data e ora corrente.
@@ -51,11 +56,12 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 | Componente | Responsabilità |
 |---|---|
 | `api` | Controller REST e contratti JSON di richiesta/risposta (`AskRequest`, `AskResponse`). |
-| `config` | Costruzione del `ChatClient` e registrazione del `MessageTrackerAdvisor`. |
+| `agent` | Orchestrazione agentica: `AgenticRagOrchestrator` e agenti `QueryPlannerAgent`, `ToolExecutionAgent`, `RelevanceGraderAgent`, `ResponseSynthesizerAgent`, con i relativi record di stato (`QueryPlan`, `ToolExecutionResult`, `EvaluationResult`). |
+| `config` | Costruzione dei `ChatClient` (con tool per l'executor, senza tool per gli altri agenti) e registrazione del `MessageTrackerAdvisor`. |
 | `constants` | Chiavi condivise nel contesto degli advisor e dei tools (`Constants`). |
 | `model` | Record di dominio: risposta strutturata del modello, riferimenti alle fonti, contesto dei documenti recuperati, metadati di cronologia. |
 | `order` | Accesso JDBC read-only alla tabella `orders` (`OrderRepository`) e proiezione `OrderSummary`. |
-| `service` | Orchestrazione LLM (`AssistantService`), ingestion (`DocumentIngestionService`), cronologia (`ChatHistoryService`), sanitizzazione dell'output (`ReasoningSanitizer`). |
+| `service` | Punto di ingresso verso l'orchestratore (`AssistantService`), ingestion (`DocumentIngestionService`), cronologia (`ChatHistoryService`), sanitizzazione dell'output (`ReasoningSanitizer`). |
 | `tools` | Tool esposti al modello, tutti read-only: `OrderTools`, `DocumentTools`, `OtherTools`. |
 | `utils` | `DocumentManager`: rilevamento MIME/formato via Tika, parsing della risposta strutturata via `BeanOutputConverter`. |
 | `mcp` | Client MCP per l'integrazione con server esterni, registrazione automatica dei tools e tracking delle callback.
@@ -63,20 +69,68 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 ### Flusso di una richiesta `/api/ask`
 
 1. `AssistantController` valida la domanda e recupera (o crea) il `conversationId` dalla `HttpSession`.
-2. `AssistantService` invoca il `ChatClient` con un prompt di sistema che definisce ruolo, lingua, divieto di inventare dati e regole strutturali di output.
-3. Il modello decide se utilizzare i tool. Ogni invocazione di `DocumentTools.searchDocuments` esegue una `similaritySearch` sul VectorStore e accumula i chunk in `RetrievedDocumentsContext` tramite `ToolContext`.
-4. `MessageTrackerAdvisor` intercetta la richiesta e la risposta, assegnando un numero progressivo al messaggio e registrando timestamp, modello e fonti.
-5. `ReasoningSanitizer` estrae i blocchi `<think>` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
-6. La risposta HTTP contiene `answer`, `thinking`, `sources`, `model` e `conversationId`.
-7. Gli eventuali tool provenienti dai server MCP sono registrati automaticamente e disponibili per l'invocazione dal modello.
+2. `AssistantService` delega all'`AgenticRagOrchestrator`, che registra il messaggio utente tramite `MessageTrackerAdvisor` (numero progressivo del messaggio) e crea un `RetrievedDocumentsContext` per la richiesta.
+3. **Pianificazione**: il `QueryPlannerAgent` analizza la domanda e produce un `QueryPlan` (intento, dati necessari, fonti suggerite, indicazioni operative).
+4. **Esecuzione**: il `ToolExecutionAgent` riceve domanda e piano e decide in autonomia quali tool invocare (documenti, ordini, data/ora, tool MCP). Ogni invocazione di `DocumentTools.searchDocuments` esegue una `similaritySearch` sul VectorStore e accumula i chunk in `RetrievedDocumentsContext` tramite `ToolContext`.
+5. **Valutazione**: il `RelevanceGraderAgent` giudica pertinenza e sufficienza dei dati raccolti. Se insufficienti e non è stato raggiunto il limite di 2 iterazioni, l'orchestratore ripete i passi 4-5 passando all'executor il feedback del grader.
+6. **Sintesi**: il `ResponseSynthesizerAgent` redige la risposta finale in italiano, con tabelle Markdown per i record di database e senza riferimenti ai dettagli implementativi. `ReasoningSanitizer` estrae i blocchi `<think>` / `<thought>`, ricolloca eventuali tabelle Markdown nel campo `answer` e normalizza l'output.
+7. L'orchestratore registra la risposta nella cronologia (`MessageTrackerAdvisor`) e la risposta HTTP contiene `answer`, `reasoning`, `sources`, `model` e `conversationId`.
+8. Gli eventuali tool provenienti dai server MCP sono registrati automaticamente sul `ChatClient` dell'executor e sono disponibili per l'invocazione dal modello.
 
 ### Scelte architetturali
 
-- **Separazione reasoning/answer**: il modello è istruito a compilare due campi distinti; la sanitizzazione applicata a valle garantisce che eventuali riflessioni interne o tag `<think>` non trapelino nella risposta finale.
-- **Retrieval su invocazione**: il contesto documentale non viene sempre precaricato nel prompt, ma iniettato solo quando il modello lo richiede, riducendo consumo di token e rumore semantico.
+- **Orchestrazione multi-agente**: la logica di una singola chiamata monolitica è scomposta in agenti con responsabilità isolate (pianificare, eseguire, valutare, sintetizzare), coordinati da una macchina a stati nell'orchestratore. Ogni fase è testabile e osservabile separatamente.
+- **Agenti con e senza tool**: solo l'agente esecutore dispone dei tool (locali e MCP); planner, grader e synthesizer usano un `ChatClient` privo di tool, così che la pianificazione, la critica e la sintesi non possano innescare effetti collaterali.
+- **Separazione reasoning/answer**: il synthesizer abilita il *thinking* del modello e il campo `reasoning` viene mantenuto distinto da `answer`; la sanitizzazione applicata a valle garantisce che eventuali riflessioni interne o tag `<think>` non trapelino nella risposta finale.
+- **Retrieval su invocazione**: il contesto documentale non viene sempre precaricato nel prompt, ma iniettato solo quando l'agente esecutore lo richiede, riducendo consumo di token e rumore semantico.
 - **Advisor come punto unico di osservabilità**: il tracciamento dei messaggi è centralizzato in un advisor Spring AI, indipendente dal servizio che orchestra la chat.
 - **Contesto in-process**: `RetrievedDocumentsContext` e la cronologia vivono in memoria e sono quindi limitati a una singola istanza dell'applicazione.
 - **Integrazione MCP**: i server MCP esterni vengono scoperti automaticamente e i loro tools registrati sul ChatClient, estendendo le capacità dell'assistente senza modifiche al codice Java.
+
+---
+
+## Orchestrazione agentica
+
+Questa versione del RAG è organizzata come workflow multi-agente. Ogni agente è un componente Spring (`@Component`) con un proprio prompt di sistema e un contratto di input/output esplicito; l'`AgenticRagOrchestrator` li coordina.
+
+```mermaid
+flowchart TD
+    User([Domanda utente]) --> Orch[AgenticRagOrchestrator]
+    Orch --> A1[1. QueryPlannerAgent<br/>analisi semantica e piano]
+    A1 --> A2[2. ToolExecutionAgent<br/>decisione ed esecuzione tool @Tool e MCP]
+    A2 --> A3[3. RelevanceGraderAgent<br/>pertinenza e sufficienza dei dati]
+    A3 --> Check{Dati sufficienti?}
+    Check -- "No, iterazione < 2: feedback" --> A2
+    Check -- "Sì, o limite raggiunto" --> A4[4. ResponseSynthesizerAgent<br/>sintesi della risposta finale]
+    A4 --> Res([AskResponse con answer, reasoning e sources])
+```
+
+### Agenti
+
+| Agente | Responsabilità | Input → Output | Tool |
+|---|---|---|---|
+| `QueryPlannerAgent` | Scompone la domanda, identifica i dati necessari e le fonti più adatte (database ordini, documenti, data/ora). Non risponde alla domanda. | domanda → `QueryPlan` (`intent`, `informationNeeds`, `suggestedSources`, `executionGuidance`) | No |
+| `ToolExecutionAgent` | Decide in autonomia, tramite function calling, quali tool invocare e con quali parametri (`searchDocuments`, tool ordini, tool data/ora locali e MCP). In caso di retry riceve il feedback del grader e si concentra sulle lacune indicate. | domanda + piano + feedback opzionale → `ToolExecutionResult` | Sì (locali + MCP) |
+| `RelevanceGraderAgent` | Valuta in modo critico se i dati recuperati sono pertinenti e sufficienti a rispondere senza ipotizzare nulla; se mancano elementi, indica cosa cercare. | domanda + piano + risultato dei tool → `EvaluationResult` (`isRelevant`, `isSufficient`, `confidenceScore` HIGH/MEDIUM/LOW, `feedback`) | No |
+| `ResponseSynthesizerAgent` | Redige la risposta finale in italiano usando solo i dati recuperati: tabelle Markdown per i record di database, distinzione tra dati transazionali e documenti, nessuna allucinazione né riferimenti a nomi di tool. Abilita il *thinking* del modello per popolare `reasoning`. | domanda + risultato dei tool + valutazione → `AskResponse` | No |
+| `AgenticRagOrchestrator` | Coordina il workflow, gestisce il ciclo di retry (massimo 2 iterazioni), registra messaggio utente e risposta nella cronologia e restituisce l'`AskResponse`. | domanda + `conversationId` → `AskResponse` | — |
+
+### Ciclo di retroazione correttiva
+
+1. L'orchestratore esegue `ToolExecutionAgent` e poi `RelevanceGraderAgent`.
+2. Se `isSufficient` è `true`, il ciclo termina e si passa alla sintesi.
+3. Altrimenti il `feedback` del grader viene passato all'executor nell'iterazione successiva, che esegue le ricerche o i tool necessari per colmare le lacune.
+4. Alla seconda iterazione il ciclo termina comunque: se i dati risultano ancora parziali, il synthesizer riceve lo stato `Parziale` con il relativo feedback e dichiara esplicitamente i limiti della risposta.
+
+Il `RetrievedDocumentsContext` è condiviso tra le iterazioni: i chunk recuperati in tutti i tentativi confluiscono nel campo `sources` della risposta.
+
+### Robustezza
+
+- **Fallback del planner**: se l'output strutturato non è ottenibile, viene usato un piano generico (fonti `DATABASE` e `RAG_DOCUMENTS`).
+- **Fallback del grader**: se la valutazione strutturata fallisce, i dati sono considerati sufficienti solo se l'esecuzione ha prodotto un riepilogo non vuoto (confidenza `MEDIUM`), altrimenti insufficienti (confidenza `LOW`).
+- **Log strutturati per fase**: ogni agente scrive log con prefisso dedicato (`[ORCHESTRATOR]`, `[PLANNER-AGENT]`, `[TOOL-AGENT]`, `[GRADER-AGENT]`, `[SYNTHESIZER-AGENT]`) e il numero di messaggio, per ricostruire l'intero flusso di una richiesta.
+
+> **Costo dell'orchestrazione:** ogni richiesta comporta più chiamate al modello (planner, executor e grader per ciascuna iterazione, synthesizer), da 4 a 6 oltre alle eventuali chiamate di tool calling dell'executor. Latenza e consumo di risorse sono quindi superiori rispetto a una singola chiamata, soprattutto con modelli locali su hardware limitato.
 
 ---
 
@@ -219,7 +273,7 @@ Tutte le API sono esposte sotto il prefisso `/api`.
 ```json
 {
   "answer": "Gli ordini in ritardo vengono verificati dal reparto Operations...",
-  "thinking": "Ho consultato la procedura aziendale e verificato gli ordini in stato IN_PROGRESS...",
+  "reasoning": "Ho consultato la procedura aziendale e verificato gli ordini in stato IN_PROGRESS...",
   "sources": [
     {
       "id": "6c0e2a1b-8f3d-4a2e-9c7b-1d5f4e3a2b10",
@@ -235,8 +289,8 @@ Tutte le API sono esposte sotto il prefisso `/api`.
 | Campo | Tipo | Descrizione |
 |---|---|---|
 | `answer` | `string` | Risposta completa per l'utente, con tabelle Markdown quando i dati provengono dal database |
-| `thinking` | `string` | Processo logico interno e pianificazione, separato dalla risposta |
-| `sources` | `array` | Riferimenti univoci (`id`, `source`, `chunk`) ai chunk recuperati dal VectorStore |
+| `reasoning` | `string` | Processo logico interno prodotto dal `ResponseSynthesizerAgent`, separato dalla risposta |
+| `sources` | `array` | Riferimenti univoci (`id`, `source`, `chunk`) ai chunk recuperati dal VectorStore in tutte le iterazioni dell'orchestrazione |
 | `model` | `string` | Modello effettivamente utilizzato per generare la risposta |
 | `conversationId` | `string` | Identificativo della conversazione, associato alla sessione HTTP |
 
@@ -367,7 +421,7 @@ docker compose exec postgres psql -U enterprise -d enterprise_ai \
 
 ## Tools disponibili
 
-I tools sono metodi Java annotati con `@Tool`, registrati sul `ChatClient` e invocabili dal modello. Sono tutti **read-only** e utilizzano query SQL parametrizzate. I tools provenienti dai server MCP sono registrati automaticamente all'avvio.
+I tools sono metodi Java annotati con `@Tool`, registrati sul `ChatClient` del `ToolExecutionAgent` (l'unico agente che ne dispone) e invocabili dal modello. Sono tutti **read-only** e utilizzano query SQL parametrizzate. I tools provenienti dai server MCP sono registrati automaticamente all'avvio.
 
 | Tool | Componente | Parametri | Comportamento |
 |---|---|---|---|
@@ -403,21 +457,25 @@ Se un tool viene invocato con uno stato non riconosciuto non produce errore: la 
 
 ### Retrieval
 
-La ricerca viene eseguita **solo** quando il modello invoca `searchDocuments`:
+La ricerca viene eseguita **solo** quando il `ToolExecutionAgent` invoca `searchDocuments`, in base al piano ricevuto dal planner e all'eventuale feedback del grader (in caso di retry la ricerca può essere ripetuta con una query diversa):
 
 - `VectorStore.similaritySearch` con `top-k` configurabile (`app.rag.top-k`, default `6`);
 - indice **HNSW** con metrica **COSINE_DISTANCE** su vettori a **768 dimensioni**;
 - la ricerca è **globale**: non distingue per formato né per documento, e può quindi restituire chunk provenienti da file diversi.
 
+### Valutazione
+
+I dati recuperati non vengono usati direttamente per la risposta: il `RelevanceGraderAgent` ne valuta pertinenza e sufficienza e, se necessario, innesca un nuovo ciclo di recupero (vedi [Orchestrazione agentica](#orchestrazione-agentica)).
+
 ### Generazione
 
-Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dati transazionali, divieto di inventare informazioni, distinzione tra dati di database e contenuti documentali, output dei record in tabelle Markdown e assenza di riferimenti a nomi di tools o dettagli implementativi.
+La risposta finale è prodotta dal `ResponseSynthesizerAgent`, il cui prompt di sistema impone: risposta in italiano, uso dei soli dati recuperati, divieto di inventare informazioni, distinzione tra dati di database e contenuti documentali, output dei record in tabelle Markdown e assenza di riferimenti a nomi di tools o dettagli implementativi.
 
 La risposta viene poi normalizzata da `ReasoningSanitizer`, che:
 
-- estrae i blocchi `<think>` / `<thought>` (anche non chiusi) verso il campo `thinking`;
+- estrae i blocchi `<think>` / `<thought>` (anche non chiusi) verso il campo `reasoning`;
 - preserva integralmente tabelle Markdown e a capo nel campo `answer`;
-- recupera nel `answer` eventuali tabelle erroneamente prodotte nel `thinking`;
+- recupera nel `answer` eventuali tabelle erroneamente prodotte nel `reasoning`;
 - applica il fallback `Il modello non ha restituito una risposta.` quando la risposta è assente.
 
 ---
@@ -471,46 +529,6 @@ spring:
 
 ---
 
-## Pipeline RAG
-
-### Ingestion
-
-1. Rilevamento del formato tramite Tika (con il nome file come hint): il risultato è normalizzato in maiuscolo (`PDF`, `TXT`, `DOCX`, …); un tipo non riconoscibile viene marcato come `UNKNOWN`.
-2. Estrazione del testo: Tika con i parser standard.
-3. Verifica che il testo non sia vuoto: un documento senza testo estraibile viene rifiutato.
-4. Chunking a **caratteri**, con dimensione `1200` e overlap `180`, privilegiando come punto di taglio i confini naturali (paragrafo, riga, spazio) quando disponibili oltre metà chunk.
-5. Indicizzazione: ogni chunk diventa un `Document` con metadati:
-
-| Metadato | Contenuto |
-|---|---|
-| `source` | Nome file originale |
-| `chunk` | Indice del chunk (1-based) |
-| `documentType` | Formato rilevato, in minuscolo |
-| `contentType` | MIME type rilevato da Tika |
-
-6. `vectorStore.add(...)`: tutti i formati confluiscono nella stessa tabella `vector_store`.
-
-### Retrieval
-
-La ricerca viene eseguita **solo** quando il modello invoca `searchDocuments`:
-
-- `VectorStore.similaritySearch` con `top-k` configurabile (`app.rag.top-k`, default `6`);
-- indice **HNSW** con metrica **COSINE_DISTANCE** su vettori a **768 dimensioni**;
-- la ricerca è **globale**: non distingue per formato né per documento, e può quindi restituire chunk provenienti da file diversi.
-
-### Generazione
-
-Il prompt di sistema impone: risposta in italiano, uso degli strumenti per i dati transazionali, divieto di inventare informazioni, distinzione tra dati di database e contenuti documentali, output dei record in tabelle Markdown e assenza di riferimenti a nomi di tool o dettagli implementativi.
-
-La risposta viene poi normalizzata da `ReasoningSanitizer`, che:
-
-- estrae i blocchi `<think>` / `<thought>` (anche non chiusi) verso il campo `thinking`;
-- preserva integralmente tabelle Markdown e a capo nel campo `answer`;
-- recupera nel `answer` eventuali tabelle erroneamente prodotte nel `thinking`;
-- applica il fallback `Il modello non ha restituito una risposta.` quando la risposta è assente.
-
----
-
 ## Persistenza dei dati
 
 ### Tabella `orders` (schema.sql)
@@ -554,10 +572,18 @@ Gestita automaticamente da Spring AI (schema `public`, tabella `vector_store`), 
 mvn test
 ```
 
-La suite copre 11 test:
+La suite copre 27 test:
 
 - **`DocumentIngestionServiceTest`** — comportamento dello splitting: chunk multipli con overlap, nessun chunk vuoto, rispetto della dimensione massima, documento breve in un unico chunk.
 - **`ReasoningSanitizerTest`** — separazione reasoning/answer, estrazione dei tag `<think>` / `<thought>` (chiusi, non chiusi, case-insensitive, multipli), gestione di input nulli o vuoti, preservazione delle tabelle Markdown e recupero delle tabelle dal campo reasoning.
+- **Test dell'orchestrazione agentica** (package `agent`):
+  - `QueryPlannerAgentTest` — generazione del piano e fallback a un piano generico;
+  - `ToolExecutionAgentTest` — invocazione del `ChatClient` con il `ToolContext` e gestione del feedback di retry;
+  - `RelevanceGraderAgentTest` — restituzione della valutazione e fallback in caso di errore;
+  - `ResponseSynthesizerAgentTest` — formattazione della risposta finale;
+  - `AgenticRagOrchestratorTest` — flusso orchestrato con successo al primo tentativo e con retry per dati insufficienti;
+  - `AgentModelSerializationTest` e `AgentBeansInstantiationTest` — serializzazione dei record di stato e istanziazione dei bean degli agenti.
+- **`MessageTrackerAdvisorTest`** e **`LoggingToolCallbackTest`** — tracciamento dei messaggi e logging delle invocazioni dei tool.
 
 ---
 
@@ -566,27 +592,38 @@ La suite copre 11 test:
 ```text
 .
 ├── docker-compose.yml            # PostgreSQL 17 + pgvector
+├── docs/                         # design document e piano dell'orchestrazione agentica
 ├── documents/                    # documenti di esempio (TXT, PDF)
 ├── start.bat / stop.bat          # shortcut Windows per Docker Compose
 ├── pom.xml
 └── src/
     ├── main/java/it/davideangelone/assistant/
+    │   ├── agent/                # orchestrazione agentica
+    │   │   ├── orchestrator/     # AgenticRagOrchestrator (workflow e ciclo di retry)
+    │   │   ├── planner/          # QueryPlannerAgent
+    │   │   ├── executor/         # ToolExecutionAgent
+    │   │   ├── grader/           # RelevanceGraderAgent
+    │   │   ├── synthesizer/      # ResponseSynthesizerAgent
+    │   │   └── model/            # QueryPlan, ToolExecutionResult, EvaluationResult
     │   ├── api/                  # controller REST e DTO (AskRequest, AskResponse)
-    │   ├── config/               # ChatClient e MessageTrackerAdvisor, AiConfiguration (MCP)
+    │   ├── config/               # AiConfiguration (ChatClient con tool, MCP client e tool callbacks),
+    │   │                         # MessageTrackerAdvisor
     │   ├── constants/            # chiavi del contesto advisor/tool
-    │   ├── model/                # record di dominio (risposta strutturata, fonti, cronologia)
+    │   ├── model/                # record di dominio (fonti, cronologia, contesto documenti)
     │   ├── order/                # OrderRepository (JDBC) e OrderSummary
     │   ├── service/              # AssistantService, DocumentIngestionService,
     │   │                         # ChatHistoryService, ReasoningSanitizer
-    │   ├── tools/                # OrderTools, DocumentTools, OtherTools
+    │   ├── tools/                # OrderTools, DocumentTools, OtherTools, LoggingToolCallback
     │   └── utils/                # DocumentManager (Tika, parsing risposta)
-    │   └── config/               # AiConfiguration: registrazione MCP client e tool callbacks
     ├── main/resources/
     │   ├── application.yml       # configurazione Spring, AI, VectorStore, upload, MCP
     │   ├── schema.sql            # estensione vector + tabella orders
     │   └── data.sql              # ordini dimostrativi
     └── test/java/it/davideangelone/assistant/
-        └── service/             # DocumentIngestionServiceTest, ReasoningSanitizerTest
+        ├── agent/                # test di agenti, orchestratore e modelli di stato
+        ├── config/               # MessageTrackerAdvisorTest
+        ├── service/              # DocumentIngestionServiceTest, ReasoningSanitizerTest
+        └── tools/                # LoggingToolCallbackTest
 ```
 
 ---
@@ -596,7 +633,9 @@ La suite copre 11 test:
 ### Decisioni
 
 - **Il modello non accede mai direttamente al database**: interagisce esclusivamente con metodi Java che eseguono query SQL parametrizzate e read-only, con whitelist degli stati e limiti di cardinalità.
-- **Retrieval agentico**: il contesto documentale viene iniettato solo su richiesta esplicita del modello, evitando di contaminare ogni risposta con chunk non pertinenti.
+- **Orchestrazione agentica con responsabilità isolate**: pianificazione, esecuzione dei tool, valutazione e sintesi sono affidate ad agenti distinti coordinati da un orchestratore; solo l'agente esecutore dispone dei tool.
+- **Valutazione critica con retry limitato**: un grader separato dal produttore dei dati verifica pertinenza e sufficienza e innesca al più un nuovo tentativo, per contenere latenza e costo; se i dati restano parziali la risposta lo dichiara.
+- **Retrieval agentico**: il contesto documentale viene recuperato solo su richiesta esplicita dell'agente esecutore, evitando di contaminare ogni risposta con chunk non pertinenti.
 - **Isolamento del ragionamento**: `reasoning` e `answer` sono campi distinti dello schema strutturato, con sanitizzazione difensiva a valle.
 - **Osservabilità centralizzata**: un singolo advisor registra richieste, risposte, modello e fonti, alimentando sia i log applicativi (`[CHAT-REQUEST]`, `[CHAT-ANSWER]`, `[TOOL]`) sia l'endpoint di cronologia.
 - **Integrazione MCP**: i server MCP esterni vengono scoperti automaticamente e i loro tools registrati sul ChatClient, estendendo le capacità dell'assistente senza modifiche al codice Java.
@@ -612,7 +651,10 @@ La suite copre 11 test:
 - **Nessuna persistenza della cronologia**: conversazioni e log vivono in memoria, sono volatili al riavvio e non sono condivise tra più istanze dell'applicazione.
 - **Nessun rate limiting né gestione della concorrenza per utente**.
 - **Il modello decide quali fonti citare**: `sources` elenca i chunk recuperati, non garantisce che la risposta li referenzi correttamente.
-- **Nessuna valutazione automatica della qualità del RAG** (nessun dataset di benchmark né metriche di faithfulness).
+- **Nessuna valutazione automatica della qualità del RAG** (nessun dataset di benchmark né metriche di faithfulness): il grader è un controllo a runtime basato sullo stesso LLM, non una metrica oggettiva.
+- **Latenza e costo dell'orchestrazione**: da 4 a 6 chiamate al modello per richiesta; con modelli piccoli o locali la qualità del planning e del grading può essere variabile e i fallback (piano generico, valutazione basata sulla presenza di dati) sono euristiche semplici.
+- **Retry limitato a 2 iterazioni**: se i dati restano insufficienti dopo il secondo tentativo, la sintesi procede con dati parziali.
+- **Esecuzione sequenziale**: gli agenti sono eseguiti in modo sincrono e in serie, senza parallelismo né streaming della risposta.
 - **Osservabilità basilare**: solo log applicativi; mancano tracing distribuito, metriche e correlazione per richiesta.
 - **Codice didattico, non production-ready**: prima di un uso reale è necessario introdurre il layer di sicurezza, la persistenza dello stato conversazionale e il dimensionamento dell'infrastruttura (pool di connessioni, memoria, concorrenza dei tools).
 - **Dipendenza dalla disponibilità dei server MCP**: se i server MCP esterni sono offline, i tools registrati da tali server non sono disponibili, anche se l'applicazione continua a funzionare con gli strumenti locali.
