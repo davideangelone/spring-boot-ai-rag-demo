@@ -51,6 +51,11 @@ class AgentBeansInstantiationTest {
         DocumentManager documentManager() {
             return mock(DocumentManager.class);
         }
+
+        @Bean
+        it.davideangelone.assistant.config.MessageTrackerAdvisor messageTrackerAdvisor() {
+            return mock(it.davideangelone.assistant.config.MessageTrackerAdvisor.class);
+        }
     }
 
     @Autowired

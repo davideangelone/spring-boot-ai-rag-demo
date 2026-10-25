@@ -8,8 +8,10 @@ import it.davideangelone.assistant.agent.model.ToolExecutionResult;
 import it.davideangelone.assistant.agent.planner.QueryPlannerAgent;
 import it.davideangelone.assistant.agent.synthesizer.ResponseSynthesizerAgent;
 import it.davideangelone.assistant.api.AskResponse;
+import it.davideangelone.assistant.config.MessageTrackerAdvisor;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -22,19 +24,25 @@ public class AgenticRagOrchestrator {
     private final ToolExecutionAgent executionAgent;
     private final RelevanceGraderAgent graderAgent;
     private final ResponseSynthesizerAgent synthesizerAgent;
+    private final MessageTrackerAdvisor messageTrackerAdvisor;
 
+    @Autowired
     public AgenticRagOrchestrator(QueryPlannerAgent plannerAgent,
                                   ToolExecutionAgent executionAgent,
                                   RelevanceGraderAgent graderAgent,
-                                  ResponseSynthesizerAgent synthesizerAgent) {
+                                  ResponseSynthesizerAgent synthesizerAgent,
+                                  MessageTrackerAdvisor messageTrackerAdvisor) {
         this.plannerAgent = plannerAgent;
         this.executionAgent = executionAgent;
         this.graderAgent = graderAgent;
         this.synthesizerAgent = synthesizerAgent;
+        this.messageTrackerAdvisor = messageTrackerAdvisor;
     }
 
     public AskResponse orchestrate(String question, String conversationId) {
         log.info("[ORCHESTRATOR] Avvio ciclo multi-agente per conversazione '{}'", conversationId);
+        messageTrackerAdvisor.recordUserMessage(conversationId, question);
+
         RetrievedDocumentsContext retrievedContext = new RetrievedDocumentsContext();
 
         // 1. Fase di Analisi Semantica e Pianificazione
@@ -65,6 +73,9 @@ public class AgenticRagOrchestrator {
         }
 
         // 3. Fase di Sintesi Finale e Validazione Output
-        return synthesizerAgent.synthesize(question, plan, currentExecution, currentEvaluation, retrievedContext, conversationId);
+        AskResponse response = synthesizerAgent.synthesize(question, plan, currentExecution, currentEvaluation, retrievedContext, conversationId);
+        messageTrackerAdvisor.recordAssistantAnswer(conversationId, response.answer(), response.reasoning(), response.sources(), response.model());
+
+        return response;
     }
 }
