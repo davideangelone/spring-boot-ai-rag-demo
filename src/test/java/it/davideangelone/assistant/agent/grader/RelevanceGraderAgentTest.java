@@ -24,7 +24,7 @@ class RelevanceGraderAgentTest {
         QueryPlan plan = new QueryPlan("Cerca ordine", List.of("id"), List.of("DATABASE"), "Cerca ordine");
         ToolExecutionResult exec = new ToolExecutionResult("Ordine trovato: ID 101, Status SHIPPED", "", List.of());
 
-        EvaluationResult eval = agent.evaluate("Dov'è il mio ordine 101?", plan, exec);
+        EvaluationResult eval = agent.evaluate("Dov'è il mio ordine 101?", plan, exec, 1);
 
         assertNotNull(eval);
         assertTrue(eval.isRelevant());
@@ -42,7 +42,7 @@ class RelevanceGraderAgentTest {
         QueryPlan plan = new QueryPlan("Cerca ordine", List.of("id"), List.of("DATABASE"), "Cerca ordine");
         ToolExecutionResult exec = new ToolExecutionResult("Dati estratti dal db", "", List.of());
 
-        EvaluationResult eval = agent.evaluate("Dov'è il mio ordine 101?", plan, exec);
+        EvaluationResult eval = agent.evaluate("Dov'è il mio ordine 101?", plan, exec, 1);
 
         assertNotNull(eval);
         assertTrue(eval.isRelevant());

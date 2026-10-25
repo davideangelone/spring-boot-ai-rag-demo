@@ -19,7 +19,7 @@ class QueryPlannerAgentTest {
                 .thenReturn(expectedPlan);
 
         QueryPlannerAgent agent = new QueryPlannerAgent(chatClient);
-        QueryPlan plan = agent.plan("Dov'è il mio ordine 101?");
+        QueryPlan plan = agent.plan("Dov'è il mio ordine 101?", 1);
 
         assertNotNull(plan);
         assertEquals("Cerca ordine", plan.intent());
@@ -33,7 +33,7 @@ class QueryPlannerAgentTest {
                 .thenThrow(new RuntimeException("Parsing error"));
 
         QueryPlannerAgent agent = new QueryPlannerAgent(chatClient);
-        QueryPlan plan = agent.plan("Quali sono i resi?");
+        QueryPlan plan = agent.plan("Quali sono i resi?", 1);
 
         assertNotNull(plan);
         assertNotNull(plan.intent());

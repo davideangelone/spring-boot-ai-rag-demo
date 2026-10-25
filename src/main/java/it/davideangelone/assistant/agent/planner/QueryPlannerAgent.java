@@ -35,8 +35,8 @@ public class QueryPlannerAgent {
         this.chatClient = chatClient;
     }
 
-    public QueryPlan plan(String question) {
-        log.info("[PLANNER-AGENT] Analisi della domanda utente: {}", question);
+    public QueryPlan plan(String question, int messageNumber) {
+        log.info("[PLANNER-AGENT] - Msg {} - Analisi della domanda utente: {}", messageNumber, question);
         try {
             QueryPlan plan = chatClient.prompt()
                     .user(question)
@@ -44,11 +44,11 @@ public class QueryPlannerAgent {
                     .entity(QueryPlan.class);
 
             if (plan != null) {
-                log.info("[PLANNER-AGENT] Piano generato: intento='{}', fonti={}", plan.intent(), plan.suggestedSources());
+                log.info("[PLANNER-AGENT] - Msg {} - Piano generato: intento='{}', fonti={}", messageNumber, plan.intent(), plan.suggestedSources());
                 return plan;
             }
         } catch (Exception e) {
-            log.warn("[PLANNER-AGENT] Errore estrazione entity strutturata, fallback a piano generico: {}", e.getMessage());
+            log.warn("[PLANNER-AGENT] - Msg {} - Errore estrazione entity strutturata, fallback a piano generico: {}", messageNumber, e.getMessage());
         }
 
         return new QueryPlan(

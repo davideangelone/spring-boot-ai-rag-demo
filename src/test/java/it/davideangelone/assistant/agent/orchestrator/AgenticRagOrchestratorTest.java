@@ -34,10 +34,10 @@ class AgenticRagOrchestratorTest {
         AskResponse mockResponse = new AskResponse("Risposta", "Ragionamento", List.of(), "model", "conv-1");
 
         when(advisor.recordUserMessage("conv-1", "domanda")).thenReturn(1);
-        when(planner.plan("domanda")).thenReturn(mockPlan);
+        when(planner.plan("domanda", 1)).thenReturn(mockPlan);
         when(executor.execute(eq("domanda"), eq(mockPlan), isNull(), any(), eq(1))).thenReturn(mockResult);
-        when(grader.evaluate("domanda", mockPlan, mockResult)).thenReturn(mockEval);
-        when(synthesizer.synthesize(eq("domanda"), eq(mockPlan), eq(mockResult), eq(mockEval), any(), eq("conv-1")))
+        when(grader.evaluate("domanda", mockPlan, mockResult, 1)).thenReturn(mockEval);
+        when(synthesizer.synthesize(eq("domanda"), eq(mockPlan), eq(mockResult), eq(mockEval), any(), eq("conv-1"), anyInt()))
                 .thenReturn(mockResponse);
 
         AgenticRagOrchestrator orchestrator = new AgenticRagOrchestrator(planner, executor, grader, synthesizer, advisor);
@@ -66,12 +66,12 @@ class AgenticRagOrchestratorTest {
         AskResponse mockResponse = new AskResponse("Risposta", "Ragionamento", List.of(), "model", "conv-1");
 
         when(advisor.recordUserMessage("conv-1", "domanda")).thenReturn(1);
-        when(planner.plan("domanda")).thenReturn(mockPlan);
+        when(planner.plan("domanda", 1)).thenReturn(mockPlan);
         when(executor.execute(eq("domanda"), eq(mockPlan), isNull(), any(), eq(1))).thenReturn(mockResult1);
         when(executor.execute(eq("domanda"), eq(mockPlan), eq("Cerca anche stato ordine"), any(), eq(1))).thenReturn(mockResult2);
-        when(grader.evaluate("domanda", mockPlan, mockResult1)).thenReturn(mockFail);
-        when(grader.evaluate("domanda", mockPlan, mockResult2)).thenReturn(mockPass);
-        when(synthesizer.synthesize(any(), any(), any(), any(), any(), any())).thenReturn(mockResponse);
+        when(grader.evaluate("domanda", mockPlan, mockResult1, 1)).thenReturn(mockFail);
+        when(grader.evaluate("domanda", mockPlan, mockResult2, 1)).thenReturn(mockPass);
+        when(synthesizer.synthesize(any(), any(), any(), any(), any(), any(), anyInt())).thenReturn(mockResponse);
 
         AgenticRagOrchestrator orchestrator = new AgenticRagOrchestrator(planner, executor, grader, synthesizer, advisor);
         AskResponse response = orchestrator.orchestrate("domanda", "conv-1");

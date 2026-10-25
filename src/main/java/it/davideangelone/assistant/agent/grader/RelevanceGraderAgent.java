@@ -35,8 +35,8 @@ public class RelevanceGraderAgent {
         this.chatClient = chatClient;
     }
 
-    public EvaluationResult evaluate(String question, QueryPlan plan, ToolExecutionResult executionResult) {
-        log.info("[GRADER-AGENT] Valutazione pertinenza e completezza per la domanda: {}", question);
+    public EvaluationResult evaluate(String question, QueryPlan plan, ToolExecutionResult executionResult, int messageNumber) {
+        log.info("[GRADER-AGENT] - Msg {} - Valutazione pertinenza e completezza per la domanda: {}", messageNumber, question);
         String promptText = """
                 DOMANDA UTENTE: %s
                 
@@ -60,12 +60,12 @@ public class RelevanceGraderAgent {
                     .entity(EvaluationResult.class);
 
             if (result != null) {
-                log.info("[GRADER-AGENT] Risultato valutazione: relevant={}, sufficient={}, score={}, feedback={}",
-                        result.isRelevant(), result.isSufficient(), result.confidenceScore(), result.feedback());
+                log.info("[GRADER-AGENT] - Msg {} - Risultato valutazione: relevant={}, sufficient={}, score={}, feedback={}",
+                        messageNumber, result.isRelevant(), result.isSufficient(), result.confidenceScore(), result.feedback());
                 return result;
             }
         } catch (Exception e) {
-            log.warn("[GRADER-AGENT] Errore durante grading strutturato: {}", e.getMessage());
+            log.warn("[GRADER-AGENT] - Msg {} - Errore durante grading strutturato: {}", messageNumber, e.getMessage());
         }
 
         boolean hasData = executionResult.summary() != null && !executionResult.summary().isBlank();

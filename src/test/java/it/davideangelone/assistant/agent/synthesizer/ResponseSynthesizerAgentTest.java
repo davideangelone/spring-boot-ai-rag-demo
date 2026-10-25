@@ -41,7 +41,7 @@ class ResponseSynthesizerAgentTest {
         ToolExecutionResult exec = new ToolExecutionResult("Dati", "Dati", List.of());
         EvaluationResult eval = new EvaluationResult(true, true, "HIGH", "OK");
 
-        AskResponse response = agent.synthesize("Domanda", plan, exec, eval, new RetrievedDocumentsContext(), "conv-1");
+        AskResponse response = agent.synthesize("Domanda", plan, exec, eval, new RetrievedDocumentsContext(), "conv-1", 1);
 
         assertNotNull(response);
         assertEquals("Ecco la risposta finale formattata", response.answer());

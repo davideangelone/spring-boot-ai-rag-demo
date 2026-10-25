@@ -6,6 +6,7 @@ import it.davideangelone.assistant.agent.model.ToolExecutionResult;
 import it.davideangelone.assistant.constants.Constants;
 import it.davideangelone.assistant.model.RetrievedDocumentsContext;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -21,7 +22,7 @@ public class ToolExecutionAgent {
             Disponi di strumenti locali e MCP annotati nativamente con @Tool:
             - Ricerca documentale (searchDocuments): per regolamenti, politiche, procedure aziendali.
             - Strumenti ordini (findOrdersByStatus, findOrderById, sumOrderAmountsByStatus): per dati del database relazionale.
-            - Strumenti data e ora (locali o MCP): per orario e data correnti.
+            - Strumenti data e ora (locali o MCP): per orario e data correnti. Se invochi il tool MCP convertTimezones, il parametro dateTime DEVE essere nel formato 'YYYY-MM-DD hh:mm:ss am/pm' (es. '2026-09-20 12:00:00 am' o '2025-06-16 10:00:00 pm').
             
             IL TUO COMPITO:
             Analizza la richiesta dell'utente e il piano di esecuzione fornito.
@@ -37,21 +38,9 @@ public class ToolExecutionAgent {
     }
 
     public ToolExecutionResult execute(String question, QueryPlan plan, String retryFeedback, RetrievedDocumentsContext context, int messageNumber) {
-        log.info("[TOOL-AGENT] Valutazione e decisione tool per richiesta: '{}'", question);
+        log.info("[TOOL-AGENT] - Msg {} - Valutazione e decisione tool per richiesta: '{}'", messageNumber, question);
 
-        StringBuilder userMessage = new StringBuilder();
-        userMessage.append("DOMANDA UTENTE: ").append(question).append("\n\n");
-        userMessage.append("PIANO DI ESECUZIONE:\n");
-        userMessage.append("- Intento: ").append(plan.intent()).append("\n");
-        userMessage.append("- Dati necessari: ").append(plan.informationNeeds()).append("\n");
-        userMessage.append("- Istruzioni: ").append(plan.executionGuidance()).append("\n");
-
-        if (retryFeedback != null && !retryFeedback.isBlank()) {
-            userMessage.append("\nATTENZIONE - FEEDBACK DAL GRADER SUL TENTATIVO PRECEDENTE:\n");
-            userMessage.append(retryFeedback).append("\n");
-            userMessage.append("Esegui le ricerche o i tool necessari per colmare le lacune indicate.\n");
-        }
-
+        StringBuilder userMessage = createUserMessage(question, plan, retryFeedback);
         Prompt prompt = new Prompt(userMessage.toString());
 
         ChatResponse response = toolChatClient.prompt(prompt)
@@ -64,14 +53,32 @@ public class ToolExecutionAgent {
                 .chatResponse();
 
         String outputText = "";
-        if (response != null && response.getResult() != null && response.getResult().getOutput() != null) {
+        if (response != null && response.getResult() != null) {
             outputText = response.getResult().getOutput().getText();
         }
 
-        log.info("[TOOL-AGENT] Esecuzione completata. Documenti nel contesto: {}", context.getDocuments().size());
-        context.getDocuments().forEach(doc -> log.info("[TOOL-AGENT] Documento: {}", doc.));
+        log.info("[TOOL-AGENT] - Msg {} - Esecuzione completata. Documenti nel contesto: {}", messageNumber, context.getDocuments().size());
+        context.getDocuments().forEach(
+                doc -> log.info("[TOOL-AGENT] - Msg {} - Documento: {}", messageNumber, doc.getMetadata().get("source"))
+        );
 
         return new ToolExecutionResult(outputText, outputText, context.getDocuments());
+    }
+
+    private @NonNull StringBuilder createUserMessage(String question, QueryPlan plan, String retryFeedback) {
+        StringBuilder userMessage = new StringBuilder();
+        userMessage.append("DOMANDA UTENTE: ").append(question).append("\n\n");
+        userMessage.append("PIANO DI ESECUZIONE:\n");
+        userMessage.append("- Intento: ").append(plan.intent()).append("\n");
+        userMessage.append("- Dati necessari: ").append(plan.informationNeeds()).append("\n");
+        userMessage.append("- Istruzioni: ").append(plan.executionGuidance()).append("\n");
+
+        if (retryFeedback != null && !retryFeedback.isBlank()) {
+            userMessage.append("\nATTENZIONE - FEEDBACK DAL GRADER SUL TENTATIVO PRECEDENTE:\n");
+            userMessage.append(retryFeedback).append("\n");
+            userMessage.append("Esegui le ricerche o i tool necessari per colmare le lacune indicate.\n");
+        }
+        return userMessage;
     }
 
     public ToolExecutionResult execute(String question, QueryPlan plan, String retryFeedback, RetrievedDocumentsContext context) {

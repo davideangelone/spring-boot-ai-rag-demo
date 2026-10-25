@@ -40,13 +40,13 @@ public class AgenticRagOrchestrator {
     }
 
     public AskResponse orchestrate(String question, String conversationId) {
-        log.info("[ORCHESTRATOR] Avvio ciclo multi-agente per conversazione '{}'", conversationId);
         int messageNumber = messageTrackerAdvisor.recordUserMessage(conversationId, question);
+        log.info("[ORCHESTRATOR] - Msg {} - Avvio ciclo multi-agente per conversazione '{}'", messageNumber, conversationId);
 
         RetrievedDocumentsContext retrievedContext = new RetrievedDocumentsContext();
 
         // 1. Fase di Analisi Semantica e Pianificazione
-        QueryPlan plan = plannerAgent.plan(question);
+        QueryPlan plan = plannerAgent.plan(question, messageNumber);
 
         // 2. Ciclo di Esecuzione Tool & Valutazione con Retroazione Correttiva
         ToolExecutionResult currentExecution = null;
@@ -54,26 +54,26 @@ public class AgenticRagOrchestrator {
         String feedback = null;
 
         for (int iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
-            log.info("[ORCHESTRATOR] Iterazione di esecuzione {}/{}", iteration, MAX_ITERATIONS);
+            log.info("[ORCHESTRATOR] - Msg {} - Iterazione di esecuzione {}/{}", messageNumber, iteration, MAX_ITERATIONS);
 
             currentExecution = executionAgent.execute(question, plan, feedback, retrievedContext, messageNumber);
-            currentEvaluation = graderAgent.evaluate(question, plan, currentExecution);
+            currentEvaluation = graderAgent.evaluate(question, plan, currentExecution, messageNumber);
 
             if (currentEvaluation.isSufficient() || iteration == MAX_ITERATIONS) {
                 if (!currentEvaluation.isSufficient()) {
-                    log.warn("[ORCHESTRATOR] Raggiunto limite massimo iterazioni ({}) con dati ancora parziali.", MAX_ITERATIONS);
+                    log.warn("[ORCHESTRATOR] - Msg {} - Raggiunto limite massimo iterazioni ({}) con dati ancora parziali.", messageNumber, MAX_ITERATIONS);
                 } else {
-                    log.info("[ORCHESTRATOR] Valutazione positiva al tentativo {}.", iteration);
+                    log.info("[ORCHESTRATOR] - Msg {} - Valutazione positiva al tentativo {}.", messageNumber, iteration);
                 }
                 break;
             }
 
             feedback = currentEvaluation.feedback();
-            log.info("[ORCHESTRATOR] Dati insufficienti. Avvio ciclo correttivo con feedback: {}", feedback);
+            log.info("[ORCHESTRATOR] - Msg {} - Dati insufficienti. Avvio ciclo correttivo con feedback: {}", messageNumber, feedback);
         }
 
         // 3. Fase di Sintesi Finale e Validazione Output
-        AskResponse response = synthesizerAgent.synthesize(question, plan, currentExecution, currentEvaluation, retrievedContext, conversationId);
+        AskResponse response = synthesizerAgent.synthesize(question, plan, currentExecution, currentEvaluation, retrievedContext, conversationId, messageNumber);
         messageTrackerAdvisor.recordAssistantAnswer(conversationId, response.answer(), response.reasoning(), response.sources(), response.model());
 
         return response;

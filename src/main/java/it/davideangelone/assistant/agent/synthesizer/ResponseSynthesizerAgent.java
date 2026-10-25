@@ -60,8 +60,9 @@ public class ResponseSynthesizerAgent {
                                   ToolExecutionResult executionResult,
                                   EvaluationResult evaluation,
                                   RetrievedDocumentsContext context,
-                                  String conversationId) {
-        log.info("[SYNTHESIZER-AGENT] Composizione risposta finale per: '{}'", question);
+                                  String conversationId,
+                                  int messageNumber) {
+        log.info("[SYNTHESIZER-AGENT] - Msg {} - Composizione risposta finale per: '{}'", messageNumber, question);
 
         String userPrompt = """
                 DOMANDA DELL'UTENTE:
