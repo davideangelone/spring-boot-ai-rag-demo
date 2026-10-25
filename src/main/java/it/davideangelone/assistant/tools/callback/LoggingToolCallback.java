@@ -84,6 +84,13 @@ public class LoggingToolCallback implements ToolCallback {
         if (null == context) {
             return null;
         }
-        return (Integer) context.get(MESSAGE_COUNTER_TOOL_CONTEXT);
+        Object val = context.get(MESSAGE_COUNTER_TOOL_CONTEXT);
+        if (val instanceof Integer i) {
+            return i;
+        }
+        if (val instanceof Number n) {
+            return n.intValue();
+        }
+        return null;
     }
 }

@@ -13,6 +13,9 @@ import it.davideangelone.assistant.config.MessageTrackerAdvisor;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 class AgenticRagOrchestratorTest {
@@ -30,8 +33,9 @@ class AgenticRagOrchestratorTest {
         EvaluationResult mockEval = new EvaluationResult(true, true, "HIGH", "OK");
         AskResponse mockResponse = new AskResponse("Risposta", "Ragionamento", List.of(), "model", "conv-1");
 
+        when(advisor.recordUserMessage("conv-1", "domanda")).thenReturn(1);
         when(planner.plan("domanda")).thenReturn(mockPlan);
-        when(executor.execute(eq("domanda"), eq(mockPlan), isNull(), any())).thenReturn(mockResult);
+        when(executor.execute(eq("domanda"), eq(mockPlan), isNull(), any(), eq(1))).thenReturn(mockResult);
         when(grader.evaluate("domanda", mockPlan, mockResult)).thenReturn(mockEval);
         when(synthesizer.synthesize(eq("domanda"), eq(mockPlan), eq(mockResult), eq(mockEval), any(), eq("conv-1")))
                 .thenReturn(mockResponse);
@@ -41,7 +45,7 @@ class AgenticRagOrchestratorTest {
 
         assertNotNull(response);
         assertEquals("Risposta", response.answer());
-        verify(executor, times(1)).execute(any(), any(), any(), any());
+        verify(executor, times(1)).execute(any(), any(), any(), any(), anyInt());
         verify(advisor).recordUserMessage("conv-1", "domanda");
         verify(advisor).recordAssistantAnswer(eq("conv-1"), eq("Risposta"), any(), any(), any());
     }
@@ -61,9 +65,10 @@ class AgenticRagOrchestratorTest {
         EvaluationResult mockPass = new EvaluationResult(true, true, "HIGH", "OK");
         AskResponse mockResponse = new AskResponse("Risposta", "Ragionamento", List.of(), "model", "conv-1");
 
+        when(advisor.recordUserMessage("conv-1", "domanda")).thenReturn(1);
         when(planner.plan("domanda")).thenReturn(mockPlan);
-        when(executor.execute(eq("domanda"), eq(mockPlan), isNull(), any())).thenReturn(mockResult1);
-        when(executor.execute(eq("domanda"), eq(mockPlan), eq("Cerca anche stato ordine"), any())).thenReturn(mockResult2);
+        when(executor.execute(eq("domanda"), eq(mockPlan), isNull(), any(), eq(1))).thenReturn(mockResult1);
+        when(executor.execute(eq("domanda"), eq(mockPlan), eq("Cerca anche stato ordine"), any(), eq(1))).thenReturn(mockResult2);
         when(grader.evaluate("domanda", mockPlan, mockResult1)).thenReturn(mockFail);
         when(grader.evaluate("domanda", mockPlan, mockResult2)).thenReturn(mockPass);
         when(synthesizer.synthesize(any(), any(), any(), any(), any(), any())).thenReturn(mockResponse);
@@ -72,7 +77,7 @@ class AgenticRagOrchestratorTest {
         AskResponse response = orchestrator.orchestrate("domanda", "conv-1");
 
         assertNotNull(response);
-        verify(executor, times(2)).execute(any(), any(), any(), any());
+        verify(executor, times(2)).execute(any(), any(), any(), any(), anyInt());
         verify(advisor).recordUserMessage("conv-1", "domanda");
         verify(advisor).recordAssistantAnswer(eq("conv-1"), eq("Risposta"), any(), any(), any());
     }

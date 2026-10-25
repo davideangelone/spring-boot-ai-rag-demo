@@ -32,12 +32,11 @@ public class ToolExecutionAgent {
 
     private final ChatClient toolChatClient;
 
-    @org.springframework.beans.factory.annotation.Autowired
     public ToolExecutionAgent(@Qualifier("toolChatClient") ChatClient toolChatClient) {
         this.toolChatClient = toolChatClient;
     }
 
-    public ToolExecutionResult execute(String question, QueryPlan plan, String retryFeedback, RetrievedDocumentsContext context) {
+    public ToolExecutionResult execute(String question, QueryPlan plan, String retryFeedback, RetrievedDocumentsContext context, int messageNumber) {
         log.info("[TOOL-AGENT] Valutazione e decisione tool per richiesta: '{}'", question);
 
         StringBuilder userMessage = new StringBuilder();
@@ -57,7 +56,10 @@ public class ToolExecutionAgent {
 
         ChatResponse response = toolChatClient.prompt(prompt)
                 .system(SYSTEM_PROMPT)
-                .toolContext(Map.of(Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, context))
+                .toolContext(Map.of(
+                        Constants.SEARCH_DOCUMENT_TOOL_CONTEXT, context,
+                        Constants.MESSAGE_COUNTER_TOOL_CONTEXT, messageNumber
+                ))
                 .call()
                 .chatResponse();
 
@@ -67,7 +69,12 @@ public class ToolExecutionAgent {
         }
 
         log.info("[TOOL-AGENT] Esecuzione completata. Documenti nel contesto: {}", context.getDocuments().size());
+        context.getDocuments().forEach(doc -> log.info("[TOOL-AGENT] Documento: {}", doc.));
 
         return new ToolExecutionResult(outputText, outputText, context.getDocuments());
+    }
+
+    public ToolExecutionResult execute(String question, QueryPlan plan, String retryFeedback, RetrievedDocumentsContext context) {
+        return execute(question, plan, retryFeedback, context, 0);
     }
 }

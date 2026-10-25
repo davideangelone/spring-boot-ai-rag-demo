@@ -1,6 +1,7 @@
 package it.davideangelone.assistant.agent.synthesizer;
 
 import java.util.List;
+
 import it.davideangelone.assistant.agent.model.EvaluationResult;
 import it.davideangelone.assistant.agent.model.QueryPlan;
 import it.davideangelone.assistant.agent.model.ToolExecutionResult;
@@ -16,6 +17,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -38,10 +40,10 @@ public class ResponseSynthesizerAgent {
     private final ChatModel chatModel;
     private final DocumentManager documentManager;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public ResponseSynthesizerAgent(ChatClient.Builder chatClientBuilder,
-                                   ChatModel chatModel,
-                                   DocumentManager documentManager) {
+                                    ChatModel chatModel,
+                                    DocumentManager documentManager) {
         this.chatClient = chatClientBuilder.build();
         this.chatModel = chatModel;
         this.documentManager = documentManager;

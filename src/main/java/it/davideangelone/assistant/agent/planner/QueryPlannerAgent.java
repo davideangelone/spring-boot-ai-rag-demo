@@ -4,6 +4,7 @@ import java.util.List;
 import it.davideangelone.assistant.agent.model.QueryPlan;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -23,7 +24,7 @@ public class QueryPlannerAgent {
 
     private final ChatClient chatClient;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public QueryPlannerAgent(ChatClient.Builder chatClientBuilder) {
         this.chatClient = chatClientBuilder
                 .defaultSystem(SYSTEM_PROMPT)

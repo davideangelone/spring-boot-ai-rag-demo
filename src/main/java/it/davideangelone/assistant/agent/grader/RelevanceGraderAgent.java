@@ -5,6 +5,7 @@ import it.davideangelone.assistant.agent.model.QueryPlan;
 import it.davideangelone.assistant.agent.model.ToolExecutionResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -23,7 +24,7 @@ public class RelevanceGraderAgent {
 
     private final ChatClient chatClient;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public RelevanceGraderAgent(ChatClient.Builder chatClientBuilder) {
         this.chatClient = chatClientBuilder
                 .defaultSystem(SYSTEM_PROMPT)

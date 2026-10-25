@@ -41,7 +41,7 @@ public class AgenticRagOrchestrator {
 
     public AskResponse orchestrate(String question, String conversationId) {
         log.info("[ORCHESTRATOR] Avvio ciclo multi-agente per conversazione '{}'", conversationId);
-        messageTrackerAdvisor.recordUserMessage(conversationId, question);
+        int messageNumber = messageTrackerAdvisor.recordUserMessage(conversationId, question);
 
         RetrievedDocumentsContext retrievedContext = new RetrievedDocumentsContext();
 
@@ -56,7 +56,7 @@ public class AgenticRagOrchestrator {
         for (int iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             log.info("[ORCHESTRATOR] Iterazione di esecuzione {}/{}", iteration, MAX_ITERATIONS);
 
-            currentExecution = executionAgent.execute(question, plan, feedback, retrievedContext);
+            currentExecution = executionAgent.execute(question, plan, feedback, retrievedContext, messageNumber);
             currentEvaluation = graderAgent.evaluate(question, plan, currentExecution);
 
             if (currentEvaluation.isSufficient() || iteration == MAX_ITERATIONS) {

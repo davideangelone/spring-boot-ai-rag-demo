@@ -95,9 +95,10 @@ public class MessageTrackerAdvisor implements BaseAdvisor {
         return response;
     }
 
-    public void recordUserMessage(String conversationId, String content) {
+    public int recordUserMessage(String conversationId, String content) {
         int messageNumber = messageCounters.computeIfAbsent(conversationId, k -> new AtomicInteger(0)).incrementAndGet();
         logRequest(conversationId, messageNumber, MessageType.USER, content);
+        return messageNumber;
     }
 
     public void recordAssistantAnswer(String conversationId, String answer, String thinking, List<SourceReference> sources, String modelName) {
