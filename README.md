@@ -86,7 +86,7 @@ L'assistente risponde in italiano, separa il ragionamento interno dalla risposta
 | Componente | Versione |
 |---|---|
 | Java | 21 |
-| Spring Boot | 4.0.0 |
+| Spring Boot | 4.1.1 |
 | Spring AI | 2.0.1 (`spring-ai-bom`) |
 | Spring AI Starter | `spring-ai-starter-model-ollama`, `spring-ai-starter-vector-store-pgvector`, `spring-ai-starter-mcp-client` |
 | Modello LLM ed embedding | Ollama (locale) |
