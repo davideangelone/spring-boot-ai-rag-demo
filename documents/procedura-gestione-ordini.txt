@@ -1,0 +1,18 @@
+PROCEDURA AZIENDALE - GESTIONE ORDINI
+Versione: 1.2
+Responsabile: Operations
+
+1. Stati dell'ordine
+NEW: ordine acquisito e in attesa di presa in carico.
+IN_PROGRESS: ordine preso in carico e in lavorazione.
+SHIPPED: ordine spedito al cliente.
+CANCELLED: ordine annullato e non più lavorabile.
+
+2. Verifica degli ordini in ritardo
+Un ordine è considerato in ritardo quando la data prevista di consegna è precedente alla data corrente e lo stato è diverso da SHIPPED e CANCELLED. Il sistema gestionale è la fonte autorevole per stato, importo e date degli ordini.
+
+3. Escalation
+Gli ordini in ritardo devono essere verificati dal reparto Operations. Se il ritardo supera cinque giorni lavorativi, il responsabile Operations informa il referente commerciale e registra una nota nel sistema gestionale.
+
+4. Dati e documentazione
+Le procedure descrivono il processo aziendale, ma non sostituiscono il sistema gestionale per i dati transazionali. Per conoscere lo stato corrente di un ordine occorre interrogare il database applicativo.
